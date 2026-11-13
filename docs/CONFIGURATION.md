@@ -64,3 +64,11 @@ Calibrated screen pointing uses the wrist directly; finger closure locks the tar
 | [ / ] | Pinch release ratio by 0.02 |
 
 With preview disabled, these keys do not receive events; use the terminal or stop the process. Setup and runtime share a per-user process lock so two instances cannot compete for the camera and pointer.
+
+## Desktop input in v2.1
+
+The session selects its input backend automatically; existing v2 profiles need no migration. Wayland uses `uinput` for absolute mapping, real relative mouse motion, click/drag, scroll and zoom shortcuts. Setup windows use XWayland only for display. X11 retains PyAutoGUI. See [Wayland notes](WAYLAND.md).
+
+On Wayland, the last requested absolute pointer position is cached because the compositor does not expose the global physical cursor position. After physical mouse use, the next screen-mapped gesture returns to its calibrated position. Relative mode sends actual relative events instead of warping to a cached position; speed/acceleration follows compositor policy. One display is the supported calibration target.
+
+The mouse-corner emergency stop applies only to X11. Use the owner pinky gesture to disable, Q/Escape in the preview, Ctrl+C, the **Stop Gesture Control** launcher, or `bash stop_pi.sh`.

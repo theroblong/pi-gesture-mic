@@ -4,3 +4,6 @@ opencv-contrib-python==4.12.0.88
 numpy==2.2.6
 Pillow==12.0.0
 PyAutoGUI==0.9.54
+
+# Linux virtual input backend for native Wayland application control.
+evdev==1.9.2; sys_platform == "linux"

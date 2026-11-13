@@ -36,6 +36,7 @@ def main():
     auto = config/'autostart'
     if args.mode == 'launchers':
         write_entry(data/'applications/pi-gesture-mic.desktop','Gesture Control',ROOT/'run_pi.sh',('--desktop',))
+        write_entry(data/'applications/pi-gesture-mic-stop.desktop','Stop Gesture Control',ROOT/'stop_pi.sh')
         write_entry(data/'applications/pi-gesture-mic-setup.desktop','Gesture Control Setup',ROOT/'run_pi.sh',('--desktop','--setup'))
     elif args.mode == 'resume':
         write_entry(auto/'pi-gesture-mic-resume.desktop','Finish Gesture Control Setup',ROOT/'install_pi.sh',('--resume',),True)

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.0 — 2026-11-12
+
+- Wayland desktop control through separate Linux uinput absolute/relative pointers and keyboard; PyAutoGUI remains available on X11.
+- Installer keeps the current desktop, installs XWayland for setup windows, provisions active-session virtual-input access, and validates device creation without sending input.
+- Added Stop Gesture Control launcher and stop script; documented Wayland physical-cursor/failsafe limitations.
+- Added backend event, cleanup, partial-failure and Wayland installer tests; updated v2.1 release package. Existing v2 profiles remain compatible.
+
 ## 2.0.0 — 2026-11-12
 
 - Live device/profile setup with camera preview, persistent source names and explicit microphone capture/playback diagnostics.

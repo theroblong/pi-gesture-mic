@@ -1,3 +1,5 @@
+> Historical v1 documentation. For current Wayland support use README.md and docs/WAYLAND.md.
+
 # Gesture Control Pi 5 — v6 Pi port
 
 Two-hand ownership / pinky pinch, index click and drag, middle right-click, ring double-click, secondary-hand scroll, and two-hand zoom/pan. Preserves camera-to-TV mapping and normalized wrist positioning from v6. Runs on **Raspberry Pi OS 64-bit Desktop with an X11 desktop session**. This is an X11 proof-of-concept bridge; the recommended default Pi OS Wayland session is not supported by this version's PyAutoGUI output adapter.

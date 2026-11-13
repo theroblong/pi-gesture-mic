@@ -37,7 +37,7 @@ class InstallerTests(unittest.TestCase):
         self.command('sudo','echo "sudo $*" >> "$CALL_LOG"\n[ "${FAIL_SUDO:-}" != 1 ]')
         self.command('raspi-config','exit 0')
         self.command('sha256sum','cat >/dev/null; exit 0')
-        runtime='#!/bin/bash\necho "runtime $*" >> "$CALL_LOG"\n'
+        runtime='#!/bin/bash\necho "runtime $*" >> "$CALL_LOG"\nif [ "${FAIL_INPUT:-}" = 1 ] && [ "$1" = tools/check_input.py ]; then exit 1; fi\n'
         self.runtime=runtime
         py = '#!'+sys.executable+'\n'+'''import os,sys,pathlib,subprocess
 with open(os.environ['CALL_LOG'],'a') as f: f.write('python '+ ' '.join(sys.argv[1:])+'\\n')
@@ -69,28 +69,47 @@ else:
         self.assertTrue((self.base/'data/applications/pi-gesture-mic.desktop').exists())
         self.assertFalse((self.base/'config/autostart/gesture-control-pi.desktop').exists())
 
-    def test_wayland_configures_then_resumes_without_reinstall(self):
+    def test_wayland_installs_input_and_launches_without_desktop_switch(self):
         self.env.update(XDG_SESSION_TYPE='wayland',WAYLAND_DISPLAY='wayland-0')
-        result=self.run_installer('--configure-x11')
+        result=self.run_installer()
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        calls=self.log.read_text()
+        self.assertIn('sudo modprobe uinput',calls)
+        self.assertIn('sudo install -m 0644 system/70-pi-gesture-mic-uinput.rules',calls)
+        self.assertIn('runtime tools/check_input.py',calls)
+        self.assertIn('runtime gesture_mouse_pi.py --setup',calls)
+        self.assertNotIn('raspi-config',calls)
+        self.assertNotIn('reboot',calls)
+        self.assertFalse((self.base/'config/autostart/pi-gesture-mic-resume.desktop').exists())
+
+    def test_wayland_headless_resume_does_not_reinstall_or_switch(self):
+        self.env.update(XDG_SESSION_TYPE='wayland',WAYLAND_DISPLAY='wayland-0',DISPLAY='')
+        self.assertEqual(self.run_installer().returncode,0)
         resume=self.base/'config/autostart/pi-gesture-mic-resume.desktop'
         self.assertTrue(resume.exists())
-        self.assertIn('sudo raspi-config nonint do_wayland W1',self.log.read_text())
-        self.assertNotIn('runtime gesture_mouse_pi.py',self.log.read_text())
         self.log.write_text('')
-        self.env.update(XDG_SESSION_TYPE='x11',WAYLAND_DISPLAY='')
+        self.env['DISPLAY']=':0'
         result=self.run_installer('--resume')
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         self.assertFalse(resume.exists())
         self.assertNotIn('sudo',self.log.read_text())
+        self.assertIn('runtime tools/check_input.py',self.log.read_text())
         self.assertIn('runtime gesture_mouse_pi.py --setup',self.log.read_text())
 
-    def test_wayland_noninteractive_does_not_change_without_flag(self):
-        self.env.update(XDG_SESSION_TYPE='wayland')
+    def test_failed_wayland_input_check_stops_before_launch(self):
+        self.env.update(XDG_SESSION_TYPE='wayland',FAIL_INPUT='1')
         result=self.run_installer()
         self.assertNotEqual(result.returncode,0)
-        self.assertNotIn('sudo raspi-config',self.log.read_text())
-        self.assertIn('--configure-x11',result.stdout+result.stderr)
+        self.assertNotIn('runtime gesture_mouse_pi.py',self.log.read_text())
+        self.assertIn('Log out and back',result.stdout+result.stderr)
+        self.assertNotIn('raspi-config',self.log.read_text())
+
+    def test_legacy_x11_flag_does_not_reconfigure_desktop(self):
+        self.env.update(XDG_SESSION_TYPE='wayland')
+        result=self.run_installer('--configure-x11')
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertIn('no longer needed',result.stdout)
+        self.assertNotIn('raspi-config',self.log.read_text())
 
     def test_headless_schedules_setup_at_desktop_login(self):
         self.env['DISPLAY']=''
