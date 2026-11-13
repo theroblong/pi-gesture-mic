@@ -8,83 +8,41 @@ Other hand index pinch: scroll; both index pinches: zoom + pan.
 Q quit, X reset, S save, R reload, T telemetry; numeric tuning shortcuts.
 For kiosk mode set show_preview=false; terminate with Ctrl+C or systemctl --user stop.
 """
+import argparse
+import os
+import signal
+import subprocess
+import sys
 import json
 import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import cv2
-import mediapipe as mp
-import pyautogui as pg
+cv2 = mp = pg = None  # Loaded only after CLI and desktop checks.
 
-from gesture_engine import GestureEngine, clamp, distance
+from gesture_engine import GestureEngine, clamp
+from profiles import ProfileStore, NUMERIC_LIMITS, state_home
+from calibration import transform
+from devices import Camera, select_microphone
 
 ROOT = Path(__file__).resolve().parent
-CONFIG_PATH = ROOT / "gesture_config.json"
-LOG_PATH = ROOT / "gesture_events.jsonl"
+LOG_PATH = state_home() / "gesture_events.jsonl"
 CONNECTIONS = [
     (0,1),(1,2),(2,3),(3,4),(0,5),(5,6),(6,7),(7,8),
     (5,9),(9,10),(10,11),(11,12),(9,13),(13,14),(14,15),(15,16),
     (13,17),(17,18),(18,19),(19,20),(0,17)
 ]
-NUMERIC_LIMITS = {
-    "cursor_smoothing": (0.01, 1), "relative_gain": (0.1, 5),
-    "pinch_start_ratio": (0.05, 1.5), "pinch_end_ratio": (0.1, 2.5),
-    "pinch_prelock_ratio": (0.1, 3), "pinch_confirmation_ms": (0, 500),
-    "pinch_release_ms": (0, 1000), "drag_hold_ms": (100, 2000),
-    "hand_loss_ms": (100, 2000), "toggle_cooldown_ms": (0, 3000),
-    "double_click_interval_ms": (30, 500), "drag_gain": (0.1, 5),
-    "drag_smoothing": (0.01, 1), "scroll_step_pixels": (10, 300),
-    "zoom_step_ratio": (0.03, 0.5), "two_hand_pan_step_pixels": (10, 300),
-    "track_match_max_distance": (0.05, 0.8),
-    "telemetry_sample_interval_ms": (100, 10000),
-    "screen_transition_rate": (0.01, 1.0),
-    "screen_motion_deadband": (0.0001, 0.05)
-}
+STORE = ProfileStore()
+PROFILE = None
 
 
 def load_config():
-    if not CONFIG_PATH.exists():
-        alt = ROOT / "gesture_config_v6.json"
-        if alt.exists():
-            raise FileNotFoundError(f"Missing {CONFIG_PATH.name}. Run: cp {alt.name} gesture_config.json")
-        raise FileNotFoundError(f"Missing {CONFIG_PATH}; extract the complete ZIP into ~/gesture-control")
-    cfg = json.loads(CONFIG_PATH.read_text())
-    if cfg.get("schema_version") != 6:
-        raise ValueError("v6 requires gesture_config.json schema_version 6; back up and copy v5 config")
-    for key, (lo, hi) in NUMERIC_LIMITS.items():
-        if not isinstance(cfg.get(key), (int, float)) or not lo <= cfg[key] <= hi:
-            raise ValueError(f"Invalid {key}; expected {lo}–{hi}")
-    if cfg["pinch_start_ratio"] >= cfg["pinch_end_ratio"]:
-        raise ValueError("pinch_start_ratio must be smaller than pinch_end_ratio")
-    if cfg["pinch_prelock_ratio"] <= cfg["pinch_start_ratio"]:
-        raise ValueError("pinch_prelock_ratio must be above pinch_start_ratio")
-    if cfg.get("pointer_mode") not in ("screen", "relative"):
-        raise ValueError("pointer_mode must be screen or relative")
-    bounds = cfg.get("camera_active_region")
-    if (not isinstance(bounds, list) or len(bounds) != 4 or
-        not all(isinstance(v, (int, float)) for v in bounds) or
-        not (0 <= bounds[0] < bounds[2] <= 1 and
-             0 <= bounds[1] < bounds[3] <= 1)):
-        raise ValueError("camera_active_region must be [left, top, right, bottom] within 0..1")
-    if cfg.get("pointer_landmark") not in (0, 9, 8):
-        raise ValueError("pointer_landmark must be 0 (wrist), 9 (palm base), or 8")
-    if not isinstance(cfg.get("show_preview", True), bool):
-        raise ValueError("show_preview must be true or false")
-    if cfg.get("actions") != {"INDEX":"left_click_drag", "MIDDLE":"right_click",
-                              "RING":"double_click", "PINKY":"toggle"}:
-        raise ValueError("v5 currently requires the standard four pinch actions")
-    for k in ("camera_index", "capture_width", "capture_height"):
-        if not isinstance(cfg.get(k), int) or cfg[k] < 0:
-            raise ValueError(f"Invalid {k}")
-    return cfg
+    return STORE.load(PROFILE)
 
 
 def save_config(config):
-    tmp = CONFIG_PATH.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(config, indent=2) + "\n")
-    tmp.replace(CONFIG_PATH)
+    STORE.save(PROFILE or STORE.active(), config)
 
 
 class LinuxX11Adapter:
@@ -109,6 +67,9 @@ class LinuxX11Adapter:
                      "event":kind, "owner_id":self.engine.owner_id if self.engine else None,
                      **fields}
             try:
+                LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                if LOG_PATH.exists() and LOG_PATH.stat().st_size > 2_000_000:
+                    LOG_PATH.replace(LOG_PATH.with_suffix(".jsonl.1"))
                 with LOG_PATH.open("a") as file:
                     file.write(json.dumps(entry) + "\n")
             except OSError as exc:
@@ -119,8 +80,8 @@ class LinuxX11Adapter:
     def move(self, dx, dy, smoothing):
         # Relative motion from wrist or palm; never snap to an absolute wrist position.
         self.mx, self.my = pg.position()
-        self.mx = clamp(self.mx + dx * smoothing, 0, self.sw - 1)
-        self.my = clamp(self.my + dy * smoothing, 0, self.sh - 1)
+        self.mx = clamp(self.mx + dx * smoothing, 1, self.sw - 2)
+        self.my = clamp(self.my + dy * smoothing, 1, self.sh - 2)
         pg.moveTo(int(self.mx), int(self.my), duration=0)
 
     def reanchor(self):
@@ -132,14 +93,20 @@ class LinuxX11Adapter:
         left, top, right, bottom = self.cfg["camera_active_region"]
         # Camera preview has already been mirrored. Clamp the active region
         # to reach all edges without moving a hand outside the camera frame.
-        target_x = clamp((x - left) / (right - left), 0, 1) * (self.sw - 1)
-        target_y = clamp((y - top) / (bottom - top), 0, 1) * (self.sh - 1)
+        if self.cfg.get("calibration"):
+            u, v = transform(self.cfg["calibration"]["matrix"], (x, y))
+            target_x, target_y = u*(self.sw-1), v*(self.sh-1)
+        else:
+            target_x = clamp((x - left) / (right - left), 0, 1) * (self.sw - 1)
+            target_y = clamp((y - top) / (bottom - top), 0, 1) * (self.sh - 1)
         current_x, current_y = pg.position()
+        if self.cfg.get("calibration"):
+            self.screen_offset = [0., 0.]
         if self.screen_offset is None:
             # Preserve trackpad position on first activation. Ease into
             # absolute screen coordinates ONLY as the wrist actually moves.
             self.screen_offset = [current_x - target_x, current_y - target_y]
-        if math.hypot(dx, dy) < self.cfg["screen_motion_deadband"]:
+        if not self.cfg.get("calibration") and math.hypot(dx, dy) < self.cfg["screen_motion_deadband"]:
             return
         # Ease out the anchor offset so the pointer eventually tracks camera
         # coordinates directly, without a sudden activation jump.
@@ -151,8 +118,8 @@ class LinuxX11Adapter:
         alpha = self.cfg["cursor_smoothing"]
         next_x = current_x + alpha * (goal_x - current_x)
         next_y = current_y + alpha * (goal_y - current_y)
-        pg.moveTo(int(clamp(next_x, 0, self.sw-1)),
-                  int(clamp(next_y, 0, self.sh-1)), duration=0)
+        pg.moveTo(int(clamp(next_x, 1, self.sw-2)),
+                  int(clamp(next_y, 1, self.sh-2)), duration=0)
 
     def scroll(self, dx, dy, accum, step):
         accum[0] += dx * self.sw
@@ -177,9 +144,15 @@ class LinuxX11Adapter:
                           data["dy"]*self.sh*self.cfg["relative_gain"],
                           self.cfg["cursor_smoothing"])
             elif kind == "drag_delta":
-                self.move(data["dx"]*self.sw*self.cfg["drag_gain"],
-                          data["dy"]*self.sh*self.cfg["drag_gain"],
-                          self.cfg["drag_smoothing"])
+                if self.cfg.get("calibration") and self.cfg["pointer_mode"] == "screen":
+                    matrix = self.cfg["calibration"]["matrix"]
+                    before = transform(matrix, (data["x"]-data["dx"], data["y"]-data["dy"]))
+                    after = transform(matrix, (data["x"], data["y"]))
+                    self.move((after[0]-before[0])*self.sw, (after[1]-before[1])*self.sh, 1.)
+                else:
+                    self.move(data["dx"]*self.sw*self.cfg["drag_gain"],
+                              data["dy"]*self.sh*self.cfg["drag_gain"],
+                              self.cfg["drag_smoothing"])
             elif kind == "mouse_click":
                 pg.click(button=data["button"])
             elif kind == "mouse_double_click":
@@ -198,15 +171,24 @@ class LinuxX11Adapter:
                 self.scroll(data["dx"], data["dy"], self.pan_pixels,
                             self.cfg["two_hand_pan_step_pixels"])
             elif kind == "zoom_step":
-                # macOS browser/document zoom, not arbitrary 3D object scaling.
-                pg.hotkey("ctrl", "+" if data["direction"] > 0 else "-")
+                pg.hotkey("ctrl", "=" if data["direction"] > 0 else "-")
+            elif kind in ("interaction_cancelled", "two_hand_end", "tracking_paused"):
+                self.scroll_pixels = [0., 0.]
+                self.pan_pixels = [0., 0.]
             if kind not in ("pointer_screen", "pointer_delta", "drag_delta", "pointer_reanchor", "secondary_scroll_delta", "two_hand_pan_delta"):
                 self.log(kind, **data)
 
     def emergency_release(self):
-        if self.drag_held:
-            pg.mouseUp(button="left")
+        # MouseUp itself checks FAILSAFE; temporarily bypass it during cleanup.
+        previous = pg.FAILSAFE
+        try:
+            pg.FAILSAFE = False
+            if self.drag_held:
+                pg.mouseUp(button="left")
+            pg.keyUp("ctrl")
+        finally:
             self.drag_held = False
+            pg.FAILSAFE = previous
 
 
 def label(result, i):
@@ -221,7 +203,7 @@ def draw(frame, text, y, color=(255,255,255), scale=0.53):
 
 
 def handle_key(key, engine, adapter, cfg, now):
-    if key == ord("q"):
+    if key in (ord("q"), 27):
         return False
     if key == 32:
         adapter.perform(engine.keyboard_toggle(now))
@@ -231,10 +213,14 @@ def handle_key(key, engine, adapter, cfg, now):
         save_config(cfg)
         adapter.log("config_saved")
     elif key == ord("r"):
-        new = load_config()
-        if any(new[k] != cfg[k] for k in ("camera_index", "capture_width", "capture_height", "model_path")):
+        try:
+            new = load_config()
+        except (ValueError, OSError) as exc:
+            print(f"Profile reload rejected: {exc}")
+            return True
+        if any(new[k] != cfg[k] for k in ("camera_index", "camera_device", "mirror_camera", "capture_width", "capture_height", "model_path")):
             print("Camera/model edits require restart")
-        for k in ("camera_index", "capture_width", "capture_height", "model_path"):
+        for k in ("camera_index", "camera_device", "mirror_camera", "capture_width", "capture_height", "model_path"):
             new[k] = cfg[k]
         adapter.perform(engine.reset())
         cfg.clear()
@@ -249,6 +235,9 @@ def handle_key(key, engine, adapter, cfg, now):
         adapter.log("pointer_mode_changed", mode=cfg["pointer_mode"])
     elif key == ord("-"):
         # Smaller active region -> greater hand-to-screen sensitivity.
+        if cfg.get("calibration"):
+            print("Calibrated reach is active. Open Setup to recalibrate.")
+            return True
         region = cfg["camera_active_region"]
         cx, cy = (region[0]+region[2])/2, (region[1]+region[3])/2
         half_w = max(0.15, (region[2]-region[0])/2 - 0.025)
@@ -258,6 +247,9 @@ def handle_key(key, engine, adapter, cfg, now):
         adapter.log("active_region_changed", bounds=cfg["camera_active_region"])
     elif key == ord("="):
         # Larger active region -> less sensitive hand movement.
+        if cfg.get("calibration"):
+            print("Calibrated reach is active. Open Setup to recalibrate.")
+            return True
         region = cfg["camera_active_region"]
         cx, cy = (region[0]+region[2])/2, (region[1]+region[3])/2
         half_w = min(0.5, (region[2]-region[0])/2 + 0.025)
@@ -293,26 +285,72 @@ def handle_key(key, engine, adapter, cfg, now):
 
 
 def main():
+    global cv2, mp, pg, PROFILE
+    parser = argparse.ArgumentParser(description="Gesture Control Pi: setup, profiles and desktop control")
+    parser.add_argument("--setup", action="store_true", help="Open profile/device setup and calibration")
+    parser.add_argument("--desktop", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--profile", help="Use a named profile")
+    parser.add_argument("--list-profiles", action="store_true")
+    parser.add_argument("--check-config", action="store_true", help="Validate profile without camera or display")
+    args = parser.parse_args()
+    if args.list_profiles:
+        print("\n".join(STORE.names()) or "Default (not yet saved)")
+        return
+    PROFILE = args.profile or STORE.active()
     cfg = load_config()
-    import os
-    if os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland":
-        raise RuntimeError("This Pi package uses X11 mouse injection. Select an X11 session via sudo raspi-config first.")
+    if args.check_config:
+        print(f"Profile {PROFILE}: configuration valid")
+        return
+    if os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or os.environ.get("WAYLAND_DISPLAY"):
+        raise RuntimeError("Desktop control requires X11. Run bash install_pi.sh to configure X11 and resume after reboot.")
     if not os.environ.get("DISPLAY"):
-        raise RuntimeError("No X11 DISPLAY set: launch from the Pi desktop, not a headless SSH session.")
+        raise RuntimeError("Open a terminal on the Pi desktop and run bash run_pi.sh --setup.")
+    # Keep two running instances from fighting over camera or desktop input.
+    import fcntl
+    lock_path = state_home() / "controller.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = lock_path.open("w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        raise RuntimeError("Gesture Control is already running. Close its preview or stop that process first.") from exc
+    import cv2 as cv_module
+    import mediapipe as mp_module
+    import pyautogui as pg_module
+    cv2, mp, pg = cv_module, mp_module, pg_module
+    if args.setup or not STORE.path(PROFILE).exists():
+        from setup_ui import setup
+        from calibration_ui import run_calibration
+        result = setup(STORE, PROFILE)
+        if result is None:
+            return
+        PROFILE, cfg, calibrate = result
+        if calibrate:
+            cfg = run_calibration(cfg)
+            if cfg is None:
+                print("Setup cancelled. Existing profile was preserved.")
+                return
+        STORE.save(PROFILE, cfg)
     model = ROOT / cfg["model_path"]
     if not model.is_file():
-        raise FileNotFoundError(f"Missing model: {model}\nDownload the model using README instructions")
+        raise FileNotFoundError(f"Missing model: {model}. Run bash install_pi.sh to repair dependencies.")
+    if cfg.get("microphone_source"):
+        try:
+            select_microphone(cfg["microphone_source"])
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+            print(f"Microphone unavailable: {exc}. Gestures remain available.")
     engine = GestureEngine(cfg)
     adapter = LinuxX11Adapter(cfg)
     adapter.engine = engine
-    backend = cv2.CAP_V4L2
-    cap = cv2.VideoCapture(cfg["camera_index"], backend)
-    if not cap.isOpened():
-        raise RuntimeError(f"Camera index {cfg['camera_index']} failed to open")
-    ok, first_frame = cap.read()
-    if not ok:
-        cap.release()
-        raise RuntimeError("Camera opened but could not read a frame")
+    cap = Camera(cfg)
+    first_frame = None
+    try:
+        while first_frame is None:
+            first_frame = cap.read()
+            time.sleep(.01)
+    except Exception:
+        cap.close()
+        raise
     print(f"Camera ready: {first_frame.shape}; pinky pinch to select owner")
     print("Q quit | SPACE toggle | X reset | S save | R reload | T telemetry")
     print("M screen/relative mode | - faster / = slower screen mapping")
@@ -320,18 +358,20 @@ def main():
         base_options=mp.tasks.BaseOptions(model_asset_path=str(model)),
         running_mode=mp.tasks.vision.RunningMode.VIDEO,
         num_hands=2)
+    def stop_signal(_signum, _frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop_signal)
     started = time.monotonic()
     prev_ts = -1
     last_sample = -1e6
     try:
         with mp.tasks.vision.HandLandmarker.create_from_options(opts) as tracker:
             while True:
-                ok, frame = cap.read()
-                if not ok:
-                    print("Camera frame failed")
-                    break
+                frame = cap.read()
+                if frame is None:
+                    time.sleep(.01)
+                    continue
                 frame = cv2.resize(frame, (cfg["capture_width"], cfg["capture_height"]))
-                frame = cv2.flip(frame, 1)
                 h, w = frame.shape[:2]
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -358,10 +398,15 @@ def main():
                 # Show the portion of the camera frame mapped to the screen.
                 # Moving the wrist across this rectangle covers the entire TV.
                 left, top, right, bottom = cfg["camera_active_region"]
-                cv2.rectangle(frame, (int(left*w), int(top*h)),
-                              (int(right*w), int(bottom*h)), (235, 165, 70), 2)
-                for tx, ty in ((left, top), (right, top), (left, bottom), (right, bottom)):
-                    cv2.circle(frame, (int(tx*w), int(ty*h)), 6, (235, 165, 70), -1)
+                if not cfg.get("calibration"):
+                    cv2.rectangle(frame, (int(left*w), int(top*h)),
+                                  (int(right*w), int(bottom*h)), (235, 165, 70), 2)
+                    for tx, ty in ((left, top), (right, top), (left, bottom), (right, bottom)):
+                        cv2.circle(frame, (int(tx*w), int(ty*h)), 6, (235, 165, 70), -1)
+                if cfg.get("calibration"):
+                    points = [(int(x*w), int(y*h)) for x,y in cfg["calibration"]["corners"]]
+                    for i, point in enumerate(points):
+                        cv2.line(frame, point, points[(i+1)%4], (110,230,160), 3)
                 for track in visible.values():
                     if cfg.get("show_landmarks", True):
                         pts = [(int(x*w), int(y*h)) for x,y in track.hand]
@@ -385,7 +430,7 @@ def main():
                     draw(frame, f"#{id_} {track.handedness} PINCH {state.active or state.candidate or 'NONE'}  {ratios}", y,
                          (0,240,200) if id_ == engine.owner_id else (190,190,190), 0.44)
                     y += 24
-                draw(frame, f"Pointer {cfg['pointer_mode'].upper()}  | - faster / = slower | M mode | {'PAUSED - return hand' if engine.owner_paused else 'TRACKING'}", h-96, (240,240,240), 0.47)
+                draw(frame, f"{PROFILE} | {cfg['pointer_mode'].upper()} | {'CALIBRATED' if cfg.get('calibration') else '- / = reach'} | {'PAUSED - return hand' if engine.owner_paused else 'TRACKING'}", h-96, (240,240,240), 0.47)
                 draw(frame, "Dual: other index pinch scrolls | both index pinches zoom/pan", h-72, (240,240,240), 0.47)
                 draw(frame, f"Drag {cfg['drag_hold_ms']}ms | Release {cfg['pinch_release_ms']}ms | Confirm {cfg['pinch_confirmation_ms']}ms", h-48,
                      (240,240,240), 0.46)
@@ -396,20 +441,40 @@ def main():
                     key = cv2.waitKey(1) & 0xFF
                 else:
                     key = 255
+                if cfg.get("show_preview", True) and cv2.getWindowProperty("Gesture Mouse Pi - Touchscreen Mapping", cv2.WND_PROP_VISIBLE) < 1:
+                    break
                 if key != 255 and not handle_key(key, engine, adapter, cfg, now):
                     break
+    except KeyboardInterrupt:
+        print("Stopping controller")
     except pg.FailSafeException:
         print("PyAutoGUI failsafe triggered (top-left corner)")
     finally:
         try:
             adapter.perform(engine.reset())
         finally:
-            adapter.emergency_release()
-            cap.release()
-            cv2.destroyAllWindows()
-        print("Stopped. Config:", CONFIG_PATH)
+            try:
+                adapter.emergency_release()
+            finally:
+                cap.close()
+                cv2.destroyAllWindows()
+        print("Stopped. Profile:", STORE.path(PROFILE))
         print("Telemetry:", LOG_PATH)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        print(f"Gesture Control: {exc}", file=sys.stderr)
+        if "--desktop" in sys.argv and os.environ.get("DISPLAY"):
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                dialog = tk.Tk()
+                dialog.withdraw()
+                messagebox.showerror("Gesture Control needs attention", str(exc), parent=dialog)
+                dialog.destroy()
+            except Exception:
+                pass  # Preserve the original error if the desktop itself failed.
+        sys.exit(1)

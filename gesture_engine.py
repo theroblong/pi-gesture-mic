@@ -45,24 +45,40 @@ class HandAssociator:
         self.tracks = {k: v for k, v in self.tracks.items()
                        if now - v.last_seen < self.timeout}
         ids = list(self.tracks)
-        pairs = []
+        # Global assignment for up to two hands. A known opposite hand may
+        # never inherit an identity; ambiguity pauses input instead of guessing.
+        costs = {}
         for i, (hand, label) in enumerate(observations):
             for id_ in ids:
                 track = self.tracks[id_]
+                if track.handedness != "Unknown" and label != track.handedness:
+                    continue
                 d = distance(hand[0], track.wrist)
+                if any(t.id != id_ and t.handedness not in (label, "Unknown")
+                       and distance(hand[0], t.wrist) + .045 < d for t in self.tracks.values()):
+                    continue
                 if d <= self.max_distance:
-                    # Preserve spatial continuity first; label is a tie breaker.
-                    cost = d + (0.06 if (label != track.handedness and
-                                          label != "Unknown" and
-                                          track.handedness != "Unknown") else 0)
-                    pairs.append((cost, i, id_))
-        used_obs, used_tracks = set(), set()
+                    costs[i, id_] = d
+        options = []
+        for assignment in itertools.product([None] + ids, repeat=len(observations)):
+            chosen = [v for v in assignment if v is not None]
+            if len(chosen) != len(set(chosen)):
+                continue
+            if any((i, id_) not in costs for i, id_ in enumerate(assignment) if id_ is not None):
+                continue
+            cost = sum(self.max_distance + .1 if id_ is None else costs[i, id_]
+                       for i, id_ in enumerate(assignment))
+            options.append((cost, assignment))
+        options.sort(key=lambda item: item[0])
         matches = {}
-        for _, i, id_ in sorted(pairs):
-            if i not in used_obs and id_ not in used_tracks:
-                matches[i] = id_
-                used_obs.add(i)
-                used_tracks.add(id_)
+        if options:
+            best = options[0][1]
+            for i, id_ in enumerate(best):
+                # Competing near-equal assignments must not silently swap owners.
+                ambiguous = any(other[i] != id_ and cost-options[0][0] < .045
+                                for cost, other in options[1:])
+                if id_ is not None and not ambiguous:
+                    matches[i] = id_
         visible = {}
         for i, (hand, label) in enumerate(observations):
             if i in matches:
@@ -71,6 +87,12 @@ class HandAssociator:
                 if label != "Unknown":
                     track.handedness = label
             else:
+                if any(obs == i for obs, _ in costs):
+                    continue
+                # A known label already tracked but beyond the distance gate is
+                # withheld until that track expires (possible detector jump).
+                if label != "Unknown" and any(t.handedness == label for t in self.tracks.values()):
+                    continue
                 track = Track(self.next_id, hand[0], now, label, hand)
                 self.tracks[self.next_id] = track
                 self.next_id += 1
@@ -230,6 +252,8 @@ class GestureEngine:
 
     def _pointer(self, out, hand, allow_movement):
         wrist = hand[self.cfg["pointer_landmark"]]
+        if self.cfg.get("calibration"):
+            self.pointing_offset = (0., 0.)
         if self.pointing_offset is None:
             # A stable proxy for the fingertip: wrist location plus the initial
             # wrist-to-index vector. We intentionally DO NOT recompute this
@@ -242,7 +266,7 @@ class GestureEngine:
         dx = wrist[0] - self.last_wrist[0]
         dy = wrist[1] - self.last_wrist[1]
         self.last_wrist = wrist
-        if allow_movement and (abs(dx) > 0.00001 or abs(dy) > 0.00001):
+        if allow_movement and (self.cfg.get("calibration") or abs(dx) > 0.00001 or abs(dy) > 0.00001):
             if self.cfg.get("pointer_mode", "screen") == "screen":
                 self.emit(out, "pointer_screen", x=wrist[0] + self.pointing_offset[0],
                           y=wrist[1] + self.pointing_offset[1], dx=dx, dy=dy)
@@ -252,8 +276,19 @@ class GestureEngine:
     def update(self, observations, now):
         out = []
         visible = self.associator.update(observations, now)
+        previous_visible = self.last_visible
         self.last_visible = visible
         current_events = {}
+        for id_, state in self.states.items():
+            if id_ not in visible:
+                state.reset(require_open=True)
+        # A disappearing secondary cancels any dual gesture, including held
+        # owner clicks, and clears scroll anchors before it can return.
+        if self.enabled and any(id_ != self.owner_id for id_ in previous_visible.keys() - visible.keys()):
+            if self.dual_mode or self.secondary_scroll_anchor is not None:
+                self.cancel_interaction(out, "secondary_out_of_frame")
+                self.owner_pinch_suppressed = True
+
         for id_, track in visible.items():
             state = self.states.setdefault(id_, PinchState())
             current_events[id_] = state.update(track.hand, now, self.cfg)
@@ -282,6 +317,7 @@ class GestureEngine:
                     self.last_wrist = None
                     self.owner_paused = False
                     self.emit(out, "tracking_resumed", owner=self.owner_id)
+                    current_events[self.owner_id] = []
                 else:
                     return out, visible
             else:
@@ -292,9 +328,14 @@ class GestureEngine:
             self.last_wrist = None
             self.states[self.owner_id].reset(require_open=True)
             self.emit(out, "tracking_resumed", owner=self.owner_id)
+            current_events[self.owner_id] = []
 
         # Pinky pinch chooses the hand *only* when disabled. When enabled,
         # only the current owner can turn control off.
+        claimants = [id_ for id_, events in current_events.items() if ("start", "PINKY") in events]
+        if not self.enabled and len(claimants) > 1:
+            self.emit(out, "owner_selection_required")
+            return out, visible
         for id_, events in current_events.items():
             for event, finger in events:
                 if event != "start" or finger != "PINKY":
@@ -333,6 +374,8 @@ class GestureEngine:
                       not blocked and not self.owner_pinch_dragging)
         self.pointer_locked = blocked
 
+        if secondary_index and self.owner_pinch_start is not None:
+            self.owner_pinch_suppressed = True
         for event, finger in current_events.get(self.owner_id, []):
             if finger == "PINKY":
                 continue
@@ -344,9 +387,9 @@ class GestureEngine:
                     self.owner_pinch_suppressed = secondary_index
                     self.owner_click_target = True
                     self.emit(out, "pinch_start", owner=self.owner_id, finger=finger)
-                elif action == "right_click":
+                elif action == "right_click" and not secondary_index:
                     self.emit(out, "mouse_click", button="right")
-                elif action == "double_click":
+                elif action == "double_click" and not secondary_index:
                     self.emit(out, "mouse_double_click", interval_ms=self.cfg["double_click_interval_ms"])
             elif event == "end" and finger == "INDEX":
                 if self.owner_pinch_dragging:
@@ -410,12 +453,12 @@ class GestureEngine:
                     (now - self.owner_pinch_start) * 1000 >= self.cfg["drag_hold_ms"]):
                 self.emit(out, "mouse_down", button="left")
                 self.owner_pinch_dragging = True
-                self.drag_palm_anchor = palm_center(owner.hand)
+                self.drag_palm_anchor = owner.hand[0] if self.cfg.get("calibration") else palm_center(owner.hand)
                 self.emit(out, "drag_start")
             if self.owner_pinch_dragging:
-                palm = palm_center(owner.hand)
+                palm = owner.hand[0] if self.cfg.get("calibration") else palm_center(owner.hand)
                 anchor = self.drag_palm_anchor
-                self.emit(out, "drag_delta", dx=palm[0]-anchor[0], dy=palm[1]-anchor[1])
+                self.emit(out, "drag_delta", dx=palm[0]-anchor[0], dy=palm[1]-anchor[1], x=palm[0], y=palm[1])
                 self.drag_palm_anchor = palm
 
         return out, visible

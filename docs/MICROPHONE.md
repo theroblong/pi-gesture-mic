@@ -1,42 +1,16 @@
-# USB microphone on Raspberry Pi 5
+# USB microphone
 
-The USB microphone is separate from camera tracking; audio capture is not yet fed into speech recognition. Many webcams have their own USB microphone, which may appear in the list alongside a standalone mic.
+Plug in a USB Audio Class microphone before opening Setup. Its descriptive desktop input appears in the Microphone selector. Source names are persisted instead of ephemeral PipeWire numeric IDs. Selecting a source makes it the desktop default and unmutes it; the volume is left unchanged. The selected source is reapplied on launch, including after a reboot when available.
 
-## Detect
+**Test microphone** explicitly records four seconds through the selected desktop source, plays it through the desktop output, reports RMS level/clipping, and deletes the temporary WAV. There is no background application audio recording. If no input is connected, keep the system default and continue gesture setup; the microphone is optional.
 
-```bash
-sudo apt install -y alsa-utils
-./check_microphone.sh
-arecord -l
-wpctl status
-```
-
-`arecord -l` shows ALSA **card/device** numbers. `wpctl status` shows separate **PipeWire source IDs**. Do not interchange them.
-
-## Record and listen
-
-For example, with ALSA card 2, device 0:
+If a saved microphone is missing on launch, the controller warns and continues gestures. Open Setup to select a replacement. Desktop audio requires the logged-in user's PipeWire/PulseAudio session. The installer adds audio utilities; it does not replace the OS sound server or overwrite `.asoundrc`.
 
 ```bash
-arecord -D plughw:2,0 -f S16_LE -r 16000 -c 1 -d 5 ~/mic-test.wav
-aplay ~/mic-test.wav
+bash check_microphone.sh         # USB, ALSA and desktop audio inventory
+bash check_microphone.sh --test  # explicit four-second test of the current default
 ```
 
-If recording fails, check actual card/device and supported formats. `plughw` may resample to a supported device format. Make sure playback speakers/TV audio are available.
+For low/clipped audio, adjust the desktop microphone level and repeat the test. If capture works but playback is silent, check the HDMI/speaker output device and volume. When using Chromium, select/allow the microphone in the site's permission prompt; system default selection does not grant browser permission. Remote sites generally need HTTPS (localhost is an exception).
 
-## Default desktop input
-
-Find USB mic under `Sources` in `wpctl status`, then:
-
-```bash
-wpctl set-default SOURCE_ID
-wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.8
-wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 0
-pw-record ~/mic-pipewire-test.wav
-# Speak and press Ctrl+C
-pw-play ~/mic-pipewire-test.wav
-```
-
-Replace `SOURCE_ID` with the PipeWire source number for your microphone. In Chromium, grant mic permission for your trusted web application. Browser permissions are separate from ALSA/PipeWire selection.
-
-Speech-to-text, wake words, push-to-talk, and voice command routing are future features, not part of this release.
+**No speech-to-text, wake word or voice-command service is included.** This product configures and validates the capture device for other desktop/browser applications.

@@ -1,85 +1,84 @@
-# pi-gesture-mic
+# Gesture Control Pi · v2
 
-Raspberry Pi 5 **gesture-controlled TV / kiosk prototype**, based on the v6 dual-hand gesture engine. Includes USB microphone setup and diagnostics. The mic integration currently configures/tests capture hardware; **speech recognition is not implemented**.
+A Raspberry Pi 5 controller for a TV or desktop, with live USB camera setup, guided personal calibration, two-hand gestures, and USB microphone selection and testing.
 
-> **Platform:** Raspberry Pi OS **64-bit Desktop in X11 mode**. The mouse adapter uses PyAutoGUI/X11; native Wayland input is not implemented. Tested by syntax checks and engine unit tests outside the Pi; physical Pi validation remains necessary.
+**Target:** Raspberry Pi OS **64-bit Desktop, Bookworm or Trixie**, USB UVC camera, HDMI display, optional USB Audio Class microphone. Desktop pointer control uses **X11**. The installer offers to configure X11 when it detects Wayland, then resumes setup after you reboot and log in. Native Wayland input and speech recognition are not implemented.
 
-## Quick start on Pi 5
+## Unzip once. Run one script.
+
+Download **[dist/pi-gesture-mic-pi5-v2.zip](dist/pi-gesture-mic-pi5-v2.zip)** onto the Pi and extract it. Open a terminal inside the extracted `pi-gesture-mic` folder:
 
 ```bash
-git clone <YOUR-REPO-URL> pi-gesture-mic
-cd pi-gesture-mic
-chmod +x *.sh
-./install_pi.sh
-./run_pi.sh
+bash install_pi.sh
 ```
 
-If your repository is already copied to the Pi, skip `git clone`. Before install, switch desktop session to X11 using `sudo raspi-config` → Advanced Options → Wayland → X11; reboot and verify `echo "$XDG_SESSION_TYPE"` prints `x11`.
+Run this as your normal desktop user, not with `sudo`. The installer requests sudo for system prerequisites. Internet is needed for dependencies and the tracking model. No executable-bit repair or manual configuration-file editing is needed.
 
-Connect USB webcam and HDMI TV. `v4l2-ctl --list-devices` lists cameras. Set the correct `camera_index` in `gesture_config.json` (Mac indices do **not** carry over to Pi). During development, keep `show_preview: true` and a keyboard connected.
+The installer installs dependencies in `.venv`, verifies the model checksum and a real inference, creates application-menu shortcuts, opens Setup, and launches control after calibration. If X11 requires a reboot, save your work and accept the reboot prompt or restart later; setup resumes at your next desktop login. It never enables automatic login.
 
-**USB microphone:** run `./check_microphone.sh`, `arecord -l`, and read [USB microphone setup](docs/MICROPHONE.md).
+## First setup
 
-**Kiosk:** `./start_kiosk.sh https://your-app.example` from the graphical desktop. To start gesture tracking at login after testing, use `./setup_autostart.sh`.
+1. **Choose a profile** or type a new name. Profiles survive upgrades and are separate for each desktop account.
+2. **Choose the camera** and check the live mirrored preview. Place it near the display with even lighting, keeping both hands and wrists in view.
+3. **Choose a microphone** or keep the system default. **Test microphone** records four seconds, plays it back, reports the signal level, and deletes the recording.
+4. **Calibrate:** select the controlling hand with a thumb–pinky pinch, record four comfortable reach corners and center, then three open/index-pinch pairs. Hold still and press Space at each capture.
+5. **Practice:** click five targets with short index pinches, then pinch-hold and drag a circle. All practice is contained in the setup window. Enter saves only after these checks pass; Escape cancels without replacing the profile.
 
-## Gesture controls
+The camera maps **wrist movement on a 2D plane** to screen coordinates. It does not infer a 3D pointing ray or turn the TV into a physical touchscreen. Recalibrate after moving the camera or changing your seating/reach.
 
-| Gesture | Behavior |
+## Everyday use
+
+Open **Gesture Control** from the application menu, or run:
+
+```bash
+bash run_pi.sh
+bash run_pi.sh --setup                 # profiles, devices and calibration
+bash run_pi.sh --profile "Living room" # use a saved profile
+bash run_pi.sh --list-profiles
+```
+
+| Gesture | Action |
 |---|---|
-| Pinky pinch, control off | That hand becomes the mouse owner |
-| Owner pinky pinch | Disables mouse control |
-| Owner wrist movement | Position cursor over the calibrated screen region |
-| Owner short index pinch | Left-click |
-| Owner held index pinch | Drag; release to drop |
-| Owner middle pinch | Right-click |
-| Owner ring pinch | Double-click |
-| Other hand index pinch + movement | Scroll |
-| Both hands index pinch | Zoom/pan gestures |
+| Thumb + pinky while control is off | Select that hand as owner |
+| Owner thumb + pinky | Turn control off |
+| Owner short index pinch | Left click on release |
+| Owner index pinch held | Drag; release to drop |
+| Owner middle pinch | Right click |
+| Owner ring pinch | Double click |
+| Other hand index pinch + movement | Scroll vertically/horizontally |
+| Both hands index-pinched | Browser/document zoom and pan through scrolling |
 
-Pointer mapping is an adjustable **virtual camera rectangle**, not physical TV edge detection. When the owning hand briefly leaves the camera frame, input is paused and the system attempts to reacquire it; the camera cannot track a hand outside its field of view.
+Detection order changes do not change the owner. Opposite/unknown labels and ambiguous assignments are withheld instead of guessing. Owner loss releases a held drag immediately and pauses control. A returning hand must reopen its pinch before another action. Simultaneous ownership requests select neither hand. Disable with the current owner before switching hands.
 
-## Repository layout
+**Stop:** Q/Escape or close the preview window; Ctrl+C in the launching terminal also stops. Moving the physical pointer into a screen corner triggers PyAutoGUI's emergency stop. Cleanup releases the held left button and Ctrl modifier. Keep a physical mouse/keyboard available.
 
-```text
-pi-gesture-mic/
-├── gesture_mouse_pi.py       # Raspberry Pi/X11 runtime
-├── gesture_engine.py         # Gesture state machine, dual-hand tracking
-├── gesture_config.json       # Pointer and gesture configuration
-├── requirements.txt          # Python dependencies
-├── install_pi.sh             # Install dependencies and tracking model
-├── run_pi.sh                 # Run desktop gesture controller
-├── check_microphone.sh       # Discover USB recording devices
-├── start_kiosk.sh            # Launch Chromium in TV kiosk mode
-├── setup_autostart.sh        # Enable desktop-login startup
-├── tests/test_engine.py      # Gesture engine unit tests
-├── docs/                      # Setup, configuration, audio, architecture
-└── dist/                      # Standalone deployable Pi bundle
+With the preview focused: Space toggles, X resets, S saves this profile, R reloads, T toggles local telemetry, M switches screen/relative mode. Existing numeric tuning shortcuts remain; see [configuration](docs/CONFIGURATION.md).
+
+## Kiosk and desktop login
+
+```bash
+bash start_kiosk.sh https://your-app.example
+bash setup_autostart.sh enable
+bash setup_autostart.sh disable
 ```
 
-The MediaPipe `hand_landmarker.task` model is downloaded by the installer, **not included in source control or the release ZIP**.
+Chromium and its microphone permissions remain separate from gesture control. On a Desktop image without Chromium, install it with `sudo apt install chromium`. Set `show_preview` to `false` in the saved profile for kiosk operation; stop from its terminal or by terminating that process. Gesture autostart is opt-in (`--autostart` during installation also enables it).
 
-## Documentation
-
-- [Install and deployment](docs/INSTALL.md)
-- [Gestures and tuning](docs/CONFIGURATION.md)
-- [USB microphone](docs/MICROPHONE.md)
-- [Architecture and portability](docs/ARCHITECTURE.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Upstream Pi port reference](docs/ORIGINAL_PI_PORT.md)
-
-## Tests
+## Validation and release
 
 ```bash
 python3 -m unittest discover -s tests -v
-python3 -m py_compile gesture_engine.py gesture_mouse_pi.py
+shellcheck ./*.sh
+python3 tools/build_release.py
 ```
 
-Unit tests cover the gesture engine; they do not prove camera, Pi performance, HDMI positioning, USB mic selection, or X11 injection on your actual hardware.
+The release is an **online bootstrap package**, not an offline OS image: Python wheels and the model are downloaded during install. The ZIP includes application source, scripts, docs, tests and a per-file SHA-256 manifest. `dist/SHA256SUMS` covers the ZIP. The original v1 archive is retained as historical material; use v2 for new installs.
 
-## Safety / privacy
+Validated on the development Mac with automated tests, script checks, rendered wizard screens, a real MediaPipe blank-frame inference, and ARM64 wheel download checks. **Physical Pi 5 acceptance testing is still required** for camera performance, microphone capture/playback, desktop reboot/resume and pointer injection. See [validation and device checklist](docs/VALIDATION.md).
 
-This controller can inject mouse and keyboard events into the active desktop. Keep a physical keyboard or trackpad handy for safety. Do not expose camera, microphone, or telemetry to public services. `gesture_events.jsonl` contains usage/tuning events and is ignored by git.
-
-## Release archives
-
-`dist/pi-gesture-mic-pi5-v1.zip` is the standalone Pi install package. The outer **repository ZIP** is for extracting into your existing Mac Git worktree. Do not commit `dist/` unless you deliberately want to version binary release archives.
+- [Installation and recovery](docs/INSTALL.md)
+- [Profiles, settings and controls](docs/CONFIGURATION.md)
+- [Microphone setup](docs/MICROPHONE.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Third-party dependencies and privacy](docs/THIRD_PARTY.md)

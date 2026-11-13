@@ -15,5 +15,3 @@ gesture_events.jsonl
 .DS_Store
 .idea/
 .vscode/
-# Generated archives (use GitHub releases or attach manually)
-dist/*.zip

@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "camera_index": 0,
   "model_path": "hand_landmarker.task",
   "capture_width": 960,
@@ -41,5 +41,9 @@
   ],
   "screen_transition_rate": 0.12,
   "screen_motion_deadband": 0.0015,
-  "show_preview": true
+  "show_preview": true,
+  "camera_device": null,
+  "microphone_source": null,
+  "mirror_camera": true,
+  "calibration": null
 }

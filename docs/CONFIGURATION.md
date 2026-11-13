@@ -1,36 +1,66 @@
-# Gestures and configuration
+# Profiles and configuration
 
-Edit `gesture_config.json` while the controller is stopped, or use supported keyboard tuning commands with the camera preview in focus. Use `S` to save and `R` to reload while running. Config uses `schema_version: 6`. Do not replace with an old v5 config.
+`gesture_config.json` is a default/legacy seed. Runtime settings are saved per desktop account under `~/.config/pi-gesture-mic/profiles/NAME.json`; `settings.json` records the active profile. XDG_CONFIG_HOME overrides the base directory. Valid profile names contain 1–48 letters, numbers, spaces, hyphens or underscores, beginning with a letter/number.
 
-| Setting | What it controls |
+Use **Gesture Control Setup** to create/select a profile and change devices. Saving uses a temporary file plus atomic replacement; failed validation cannot replace an existing profile. A version 6 configuration is migrated in memory to version 7, keeping its tuning values. The original seed file is never rewritten by runtime. Malformed profiles fail with an error rather than silently resetting personal calibration.
+
+```bash
+bash run_pi.sh --setup
+bash run_pi.sh --profile "Alice"
+bash run_pi.sh --check-config --profile "Alice"
+```
+
+The UI selects a stable camera device path where available and a persistent desktop microphone source name. Changing the camera or mirroring invalidates calibration. Moving the same physical camera cannot be detected automatically: recalibrate after any camera/seating change. A camera without stable identifiers may fall back to `/dev/videoN`; verify it after reconnecting.
+
+## Calibration
+
+Four camera-plane wrist points (top-left, top-right, bottom-right, bottom-left) map to 10%/90% inset display targets via a projective transform. Samples require at least 0.7 seconds, eight observations, and limited wrist jitter. Non-convex, tiny, crossed or excessively distorted calibration areas are rejected. Center reach must agree within 15% normalized Euclidean error. The center is stored as a comfort/accuracy check, not a fifth fitted correspondence.
+
+Three open/pinch sample pairs estimate separated activation/release thresholds using conservative quantiles. Practice requires five short index clicks within 9% normalized Euclidean screen distance and a successful hold-drag-release. Accuracy metrics and the drag result are saved. Drag hold duration uses the existing tunable setting (350 ms by default); practice validates it rather than deriving a physiological optimum. All tests remain inside the setup canvas.
+
+Calibrated screen pointing uses the wrist directly; finger closure locks the target. Drag uses displacement under the same mapping, preserving the click location. Calibration is 2D movement mapping, not 3D ray pointing. The adapter keeps generated movements one pixel away from failsafe corners. Normalized calibration survives resolution changes, but changing display placement, aspect ratio or working distance may require recalibration.
+
+## Key settings
+
+| Setting | Meaning |
 |---|---|
-| `camera_index` | USB UVC webcam OpenCV index on the Pi |
-| `capture_width`, `capture_height` | Processing target frame dimensions |
-| `pointer_mode` | `screen` absolute mapping or `relative` movement |
-| `pointer_landmark` | `0` wrist, `9` palm base, `8` index fingertip |
-| `camera_active_region` | `[left,top,right,bottom]` normalized camera rectangle to entire TV |
-| `cursor_smoothing` | Cursor smoothing parameter |
-| `relative_gain` | Relative-mode pointer movement gain |
-| `screen_transition_rate` | Rate for aligning absolute screen mapping |
-| `screen_motion_deadband` | Discards tiny input movements |
-| `pinch_start_ratio`, `pinch_end_ratio` | Pinch detection hysteresis thresholds |
-| `pinch_prelock_ratio` | Freezes target before fingers touch |
-| `pinch_confirmation_ms` | Minimum time before confirmed pinch |
-| `pinch_release_ms` | Release debounce |
-| `drag_hold_ms` | Index pinch duration before drag |
-| `hand_loss_ms` | Lost-hand grace interval |
-| `track_match_max_distance` | Hand identity matching threshold |
-| `show_preview` | Show/hide debug camera window |
-| `telemetry_enabled` | Enable local gesture event logging |
+| `camera_device`, `camera_index` | Stable device path, or legacy numeric fallback |
+| `microphone_source` | Persistent PulseAudio/PipeWire source name; null keeps system default |
+| `mirror_camera` | Mirror before tracking and preview; defaults true |
+| `capture_width`, `capture_height` | Requested capture and processing dimensions, default 960×540 |
+| `calibration` | Validated matrix/corners, center, camera orientation, hand and practice metrics |
+| `pointer_mode` | `screen` or legacy `relative` |
+| `pointer_landmark` | Legacy wrist 0, palm base 9 or fingertip 8; calibration requires wrist 0 |
+| `camera_active_region` | Legacy uncalibrated rectangle `[left,top,right,bottom]` |
+| `cursor_smoothing` | Screen interpolation/relative movement factor |
+| `relative_gain`, `drag_gain`, `drag_smoothing` | Legacy relative movement/drag tuning |
+| `pinch_start_ratio`, `pinch_end_ratio` | Pinch activation/release hysteresis normalized by palm width |
+| `pinch_prelock_ratio` | Freeze target before confirmed finger contact |
+| `pinch_confirmation_ms`, `pinch_release_ms` | Activation/release debounce |
+| `drag_hold_ms` | Hold before mouse down; default 350 ms |
+| `hand_loss_ms` | Track retention window; a drag releases on first missing owner frame |
+| `track_match_max_distance` | Maximum spatial association distance |
+| `scroll_step_pixels`, `two_hand_pan_step_pixels` | Movement accumulated per scroll notch |
+| `zoom_step_ratio` | Relative separation change per browser zoom step |
+| `show_preview`, `show_landmarks` | Runtime preview and tracking overlay |
+| `telemetry_enabled` | Local event/ratio logging, with a 2 MB rotation plus one backup |
 
-### Screen coverage vs precision
+## Preview controls
 
-`camera_active_region: [0.14,0.12,0.86,0.88]` maps the central 72% of camera width and 76% of height over the full display. **Smaller rectangle means less wrist travel** (faster, less precise); larger means more travel (slower, more precise). The box reflects a virtual coordinate mapping, **not** physical TV corners.
+| Keys | Action |
+|---|---|
+| Q, Escape or window close | Stop and release held input |
+| Space | Disable, or enable when exactly one hand is visible |
+| X | Reset ownership and interactions |
+| S / R | Save/reload the active profile (device/model changes require restart) |
+| T | Toggle local telemetry |
+| M | Screen / relative mode |
+| - / = | Shrink/grow legacy active region; calibrated profiles use Setup instead |
+| 1 / 2 | Decrease/increase drag hold by 50 ms |
+| 3 / 4 | Release debounce by 20 ms |
+| 5 / 6 | Confirmation debounce by 10 ms |
+| 7 / 8 | Pinch activation ratio by 0.02 |
+| 9 / 0 | Smoothing by 0.05 |
+| [ / ] | Pinch release ratio by 0.02 |
 
-### Multi-hand ownership
-
-Either hand can use a pinky pinch to claim ownership while control is off. The owner's pinky pinch disables control, allowing the other hand to claim ownership next. The non-owner hand can perform secondary scrolling and two-hand operations. When hands cross or leave frame, hand identity matching may be unreliable.
-
-### Cursor stability
-
-The wrist is the default tracking landmark so finger-pinching should not move the target as much as index-tip tracking. The prelock region freezes the cursor while pinching; continuous dragging follows the hand. Brief tracking loss pauses movement instead of permanently disabling user control.
+With preview disabled, these keys do not receive events; use the terminal or stop the process. Setup and runtime share a per-user process lock so two instances cannot compete for the camera and pointer.

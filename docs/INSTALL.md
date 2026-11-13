@@ -1,38 +1,45 @@
-# Install on Raspberry Pi 5
+# Installation and recovery
 
-Requires a Pi 5, 64-bit Raspberry Pi OS Desktop, HDMI TV, a USB UVC webcam, and optionally a USB Audio Class microphone. For this prototype, switch to an **X11** desktop session in `sudo raspi-config` → Advanced Options → Wayland → X11; reboot and verify `echo $XDG_SESSION_TYPE`.
+## Supported deployment
 
-Transfer or clone the files onto the Pi, then:
+Use Raspberry Pi 5 with Raspberry Pi OS 64-bit Desktop, Bookworm (system Python 3.11) or Trixie (3.13), HDMI display, USB UVC camera and optionally a USB Audio Class microphone. This release supports Python 3.11–3.13. Lite/headless images, CSI/libcamera-only cameras, native Wayland input and other distributions are outside the supported path.
 
-```bash
-cd ~/pi-gesture-mic
-chmod +x *.sh
-./install_pi.sh
-v4l2-ctl --list-devices
-ls /dev/video*
-./run_pi.sh
-```
+Extract `dist/pi-gesture-mic-pi5-v2.zip`, enter its `pi-gesture-mic` directory on the Pi desktop, and run `bash install_pi.sh`. Use your regular account. The script elevates only system setup commands.
 
-The installer creates `.venv`, installs Python dependencies, and downloads `hand_landmarker.task`. It needs internet access. Set `camera_index` appropriately in `gesture_config.json` before running. If the camera is not index 0, try 1, 2, etc. and verify capture. Camera indices can change on reboot.
+## What the script handles
 
-The application requires a graphical desktop. Running from SSH without a valid X11 display usually fails. For an X11 desktop, use a local terminal for the first run.
+- Architecture/OS/Python checks, apt prerequisites for camera, ALSA/desktop audio, Tk and X11/Qt libraries.
+- A local `.venv`, explicit direct dependency pins, pip consistency checks, and a record of all resolved versions in `~/.local/state/pi-gesture-mic/installed-requirements.txt`.
+- A versioned MediaPipe hand model download with a fixed SHA-256 check. A corrupt or partial file is replaced only after a valid download completes.
+- A real blank-frame model inference before opening setup. This checks library/model compatibility on the target Pi without requiring a camera or desktop connection.
+- Application menu entries for **Gesture Control** and **Gesture Control Setup**, correctly quoting paths with spaces.
+- Wayland detection and an offered X11 transition through `raspi-config nonint do_wayland W1`. A separate, temporary desktop autostart resumes setup after reboot and login. The script asks before rebooting.
+- Camera discovery, stable `/dev/v4l/by-id` (or by-path) selection, microphone discovery by persistent source name, live preview and guided calibration.
+- Launch after successful calibration. No mouse actions are sent during setup; runtime starts with control off.
 
-## Kiosk display
+Source for the desktop switch: [Raspberry Pi configuration documentation](https://www.raspberrypi.com/documentation/computers/configuration.html) and [raspi-config implementation](https://github.com/RPi-Distro/raspi-config/blob/trixie/raspi-config).
 
-```bash
-./start_kiosk.sh https://YOUR-APP-URL
-```
-
-The kiosk launcher opens Chromium; the gesture controller runs independently. Once tested, set `show_preview` to `false` and launch `./run_pi.sh` separately or install desktop auto-start using `./setup_autostart.sh`. When preview is off, hotkeys in the camera window do not work; stop the process from a terminal.
-
-## Validate
+## Options
 
 ```bash
-uname -m
-echo "$XDG_SESSION_TYPE"
-v4l2-ctl --list-devices
-arecord -l
-.venv/bin/python -m unittest discover -s tests -v
+bash install_pi.sh --no-launch       # install/check; open setup later
+bash install_pi.sh --configure-x11   # authorize X11 transition without the selection prompt
+bash install_pi.sh --autostart       # also launch controller at future desktop logins
 ```
 
-A `aarch64` CPU and `x11` session are expected for this release. See [Troubleshooting](TROUBLESHOOTING.md).
+`--resume` is used by the temporary desktop entry. It skips installation and repeats the model smoke check. If dependencies are missing, run the installer normally. If installing through SSH, the script arranges setup at the next graphical login. It cannot log in on your behalf. If that first login is still Wayland, setup offers the desktop transition then.
+
+The installer is safe to rerun after a failed download or apt operation. It reuses the environment, verifies the model, and preserves profiles. It does not silently repair malformed profiles or replace custom source files. Stop a running controller before installing/upgrading; only one controller/setup instance can own the desktop at a time.
+
+## Upgrade and rollback
+
+Extract v2 into a **new directory** to preserve any source customizations and avoid stale virtual environments. Run its installer to recreate shortcuts. Profiles remain under the desktop account's configuration directory. Keep the prior directory until the new version works. To roll back application code, recreate shortcuts from the prior directory. A v1 runtime does not understand v2 calibration profiles; its original configuration remains alongside its source.
+
+## Remove login behavior or desktop changes
+
+- `bash setup_autostart.sh disable` removes controller autostart without deleting profiles.
+- `python3 tools/desktop_entry.py clear-resume` removes an unfinished setup resume entry.
+- To return to Wayland: `sudo raspi-config nonint do_wayland W2`, then reboot when ready. Gesture desktop control will require X11 again.
+- To uninstall, disable autostart and clear resume first, remove `pi-gesture-mic*.desktop` from `~/.local/share/applications`, then remove the extracted application directory. Keep or separately remove `~/.config/pi-gesture-mic` and `~/.local/state/pi-gesture-mic`. Shared apt packages are intentionally left installed.
+
+XDG_CONFIG_HOME, XDG_DATA_HOME and XDG_STATE_HOME are respected throughout. Logs are in `~/.local/state/pi-gesture-mic/install.log`; model downloads and dependencies require working internet and sufficient disk space (allow roughly 1 GB for environment/downloads).
