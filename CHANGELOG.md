@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.0 — 2026-11-12
+
+- Complete hands-free calibration after opening the wizard: open-hand owner selection, pose-aware two-second capture countdowns and deliberate final index-pinch save.
+- Thumb–middle hold restarts; thumb–ring hold cancels. Keyboard controls remain available.
+- Hold timers reset on tracking gaps, identity changes and motion; consecutive corners require new reach positions, and wrong poses cannot fill calibration samples.
+- Added full gesture-only flow and failure-path tests; rendered and inspected capture/save screens. Wayland support and existing profiles are preserved.
+
 ## 2.1.0 — 2026-11-12
 
 - Wayland desktop control through separate Linux uinput absolute/relative pointers and keyboard; PyAutoGUI remains available on X11.

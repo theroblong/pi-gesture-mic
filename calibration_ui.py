@@ -3,13 +3,14 @@ import copy
 import math
 import time
 from datetime import datetime, timezone
-from calibration import TARGETS, StableSamples, homography, transform, pinch_thresholds
-from gesture_engine import GestureEngine, distance
+from calibration import TARGETS, StableSamples, GestureHold, homography, transform, pinch_thresholds
+from gesture_engine import GestureEngine, distance, TIPS
 from devices import Camera
 
 
 class Wizard:
     def __init__(self, cfg):
+        self.source_cfg = copy.deepcopy(cfg)
         self.cfg = copy.deepcopy(cfg)
         self.cfg['calibration'] = None
         self.cfg['pointer_landmark'] = 0
@@ -18,7 +19,7 @@ class Wizard:
         self.stage = 0
         self.samples = StableSamples()
         self.corners, self.opened, self.closed = [], [], []
-        self.message = 'Press SPACE when your camera is positioned comfortably.'
+        self.message = 'Show ONE open hand near your comfortable center. Hold still for 2 seconds.'
         self.matrix = None
         self.hand = None
         self.cursor = (.5, .5)
@@ -28,67 +29,198 @@ class Wizard:
         self.drag_origin = None
         self.drag_previous = None
         self.done = False
+        self.cancelled = False
+        self.now = self.stage_since = 0.
+        self.capture_hold = GestureHold()
+        self.command_hold = GestureHold(jitter=.06)
+        self.commands_armed = False
+        self.save_armed = False
+        self.selection_point = None
+        self.hold_progress = 0.
+        self.hold_label = 'Hold still to begin'
         self.targets = ((.5,.5), (.25,.25), (.75,.25), (.75,.75), (.25,.75))
 
     def advance(self):
         self.stage += 1
         self.samples.clear()
+        self.capture_hold.clear()
+        self.command_hold.clear()
+        self.stage_since = self.now
+        self.hold_progress = 0.
         self.message = ('Open your hand, move the blue dot into the ring, then make a quick index pinch.'
-                        if self.stage == 13 else 'Hold your wrist steady, then press SPACE.')
+                        if self.stage == 13 else 'Follow the pose shown. Hold steady until the countdown completes.')
+
+    @staticmethod
+    def ratios(track):
+        width = max(distance(track.hand[5], track.hand[17]), .001)
+        return {name: distance(track.hand[4], track.hand[tip])/width for name,tip in TIPS.items()}
+
+    def command(self, track):
+        """Deliberate gestures work before thresholds are calibrated; no OS events."""
+        if track is None:
+            self.command_hold.clear()
+            return False
+        ratios = self.ratios(track)
+        if min(ratios.values()) >= .8:
+            self.commands_armed = True
+            if self.stage == 15:
+                self.save_armed = True
+        closest = min(ratios, key=ratios.get)
+        distinct = all(value-ratios[closest] >= .15 for name,value in ratios.items() if name != closest)
+        action = None
+        if self.commands_armed and distinct and ratios[closest] <= .45:
+            if closest == 'MIDDLE':
+                action = 'restart'
+            elif closest == 'RING':
+                action = 'cancel'
+            elif closest == 'INDEX' and self.stage == 15 and self.save_armed:
+                action = 'save'
+        if action is None:
+            self.command_hold.clear()
+            return False
+        duration = {'restart':2., 'cancel':3., 'save':1.5}[action]
+        ready = self.command_hold.update((track.id,action), track.hand[0], self.now, duration)
+        self.hold_progress = self.command_hold.progress
+        self.hold_label = f'Hold to {action}'
+        self.message = f'Hold {closest.lower()} pinch to {action}. Open your hand to stop the countdown.'
+        self.capture_hold.clear()
+        self.samples.clear()
+        self.dragging = False
+        self.drag_previous = None
+        self.engine.cancel_interaction([], 'wizard_command')
+        if ready:
+            if action == 'restart':
+                self.__init__(self.source_cfg)
+            elif action == 'cancel':
+                self.cancelled = True
+            else:
+                self.done = True
+        return True
+
+    def capture_pose(self, owner, ratios):
+        """Check pose and new target before starting a dwell, not after capture."""
+        point = owner.hand[0]
+        opened = min(ratios.values()) >= .8
+        if self.stage in (8,10,12):
+            baseline = sum(self.opened)/len(self.opened) if self.opened else 1.
+            valid = (ratios['INDEX'] <= min(.65, baseline*.65) and
+                     baseline-ratios['INDEX'] >= .25 and
+                     ratios['INDEX'] == min(ratios.values()))
+            return valid, 'Touch index fingertip to thumb and hold your wrist still.'
+        if not opened:
+            return False, 'Open your fingers and keep your wrist visible.'
+        # Avoid recording the same stationary wrist at successive corner prompts.
+        if self.stage == 2 and self.selection_point is not None:
+            valid = point[0] < self.selection_point[0]-.05 and point[1] < self.selection_point[1]-.05
+            return valid, 'Move your open hand up and left from your starting position.'
+        if self.stage == 3:
+            return point[0] > self.corners[-1][0]+.12, 'Move right to the next corner, then hold still.'
+        if self.stage == 4:
+            return point[1] > self.corners[-1][1]+.12, 'Move down to the next corner, then hold still.'
+        if self.stage == 5:
+            return point[0] < self.corners[-1][0]-.12, 'Move left to the next corner, then hold still.'
+        if self.stage == 6:
+            valid = math.dist(transform(self.matrix, point, clip=False), (.5,.5)) <= .15
+            return valid, 'Return your open hand to the comfortable center.'
+        return True, 'Keep your open hand still.'
+
+    def capture(self):
+        point, ratios = self.samples.capture()
+        if 2 <= self.stage <= 5:
+            points = self.corners + [point]
+            if self.stage == 5:
+                self.matrix = homography(points)
+            self.corners = points
+        elif self.stage == 6:
+            if math.dist(transform(self.matrix, point, clip=False), (.5,.5)) > .15:
+                raise ValueError('Center is off. Hold a middle pinch to restart with a comfortable rectangular reach.')
+            self.neutral = point
+        elif self.stage in (7,9,11):
+            self.opened.extend(ratios)
+        else:
+            closed = self.closed + ratios
+            if self.stage == 12:
+                self.cfg.update(pinch_thresholds(self.opened, closed))
+                self.cfg['calibration'] = {
+                    'version': 1, 'corners': self.corners, 'matrix': self.matrix,
+                    'neutral': self.neutral, 'handedness': self.hand,
+                    'mirror_camera': self.cfg['mirror_camera'],
+                    'camera_device': self.cfg.get('camera_device'),
+                    'created_at': datetime.now(timezone.utc).isoformat()}
+                self.engine.cancel_interaction([], 'calibration_finished')
+                for state in self.engine.states.values():
+                    state.reset(require_open=True)
+            self.closed = closed
+        self.advance()
 
     def update(self, observations, now, key=None):
+        self.now = now
+        self.hold_progress = 0.
+        self.hold_label = 'Hold the requested pose'
         events, visible = self.engine.update(observations, now)
         owner = visible.get(self.engine.owner_id)
-        if self.stage == 0:
-            if key == 32 and visible:
-                self.advance()
-                self.message = 'Touch thumb to pinky on the hand you want to use.'
+        candidate = owner if self.stage >= 2 else (next(iter(visible.values())) if len(visible) == 1 else None)
+        if self.command(candidate):
             return visible
-        if self.stage == 1:
-            if owner and owner.handedness in ('Left', 'Right'):
-                self.hand = owner.handedness
+        if self.stage in (0,1):
+            if self.stage == 0 and key == 32 and visible:
                 self.advance()
+                self.message = 'Hold one open hand still, or use its thumb + pinky pinch.'
+                return visible
+            if self.stage == 1 and owner and owner.handedness in ('Left','Right'):
+                self.hand = owner.handedness
+                self.selection_point = owner.hand[0]
+                self.advance()
+                return visible
+            valid = candidate is not None and candidate.handedness in ('Left','Right') and min(self.ratios(candidate).values()) >= .8
+            ready = self.capture_hold.update((self.stage,candidate.id) if valid else None,
+                                             candidate.hand[0] if valid else None, now)
+            self.hold_progress = self.capture_hold.progress
+            self.hold_label = 'Hold to choose this hand'
+            if ready:
+                self.engine.enable(candidate.id, [])
+                self.hand = candidate.handedness
+                self.selection_point = candidate.hand[0]
+                self.stage = 1
+                self.advance()
+            elif not valid:
+                self.message = 'Show only your controlling hand, fingers open, near your comfortable center.'
+            return visible
+        if self.stage == 15 and key in (10,13):
+            self.done = True
             return visible
         if not owner or owner.handedness != self.hand or self.engine.owner_paused:
             self.samples.clear()
+            self.capture_hold.clear()
             self.dragging = False
             self.drag_previous = None
             self.message = 'Return your controlling hand. If control is off, use its pinky pinch.'
             return visible
-        ratio = distance(owner.hand[4], owner.hand[8]) / max(distance(owner.hand[5], owner.hand[17]), .001)
-        self.samples.add(owner.id, owner.hand[0], ratio, now)
-        if 2 <= self.stage <= 12 and key == 32:
-            try:
-                point, ratios = self.samples.capture()
-                if 2 <= self.stage <= 5:
-                    points = self.corners + [point]
-                    if self.stage == 5:
-                        self.matrix = homography(points)
-                    self.corners = points
-                elif self.stage == 6:
-                    error = math.dist(transform(self.matrix, point, clip=False), (.5,.5))
-                    if error > .15:
-                        raise ValueError('Center is off. Press R to restart and use a comfortable rectangular reach.')
-                    self.neutral = point
-                elif self.stage in (7,9,11):
-                    self.opened.extend(ratios)
-                else:
-                    closed = self.closed + ratios
-                    if self.stage == 12:
-                        self.cfg.update(pinch_thresholds(self.opened, closed))
-                        self.cfg['calibration'] = {
-                            'version': 1, 'corners': self.corners, 'matrix': self.matrix,
-                            'neutral': self.neutral, 'handedness': self.hand,
-                            'mirror_camera': self.cfg['mirror_camera'],
-                            'camera_device': self.cfg.get('camera_device'),
-                            'created_at': datetime.now(timezone.utc).isoformat()}
-                        self.engine.cancel_interaction([], 'calibration_finished')
-                        for state in self.engine.states.values():
-                            state.reset(require_open=True)
-                    self.closed = closed
-                self.advance()
-            except ValueError as exc:
-                self.message = str(exc)
+        ratios = self.ratios(owner)
+        if 2 <= self.stage <= 12:
+            # Keyboard capture remains available as an optional fallback.
+            valid, hint = self.capture_pose(owner, ratios)
+            sample_pose = valid or (self.stage not in (8,10,12) and min(ratios.values()) >= .8)
+            if sample_pose:
+                self.samples.add(owner.id, owner.hand[0], ratios['INDEX'], now)
+            else:
+                self.samples.clear()
+            ready = self.capture_hold.update((self.stage,owner.id) if valid and now-self.stage_since >= .6 else None,
+                                             owner.hand[0], now)
+            self.hold_progress = self.capture_hold.progress
+            self.hold_label = 'Hold still to capture'
+            if not valid:
+                self.message = hint
+            elif self.hold_progress > 0:
+                self.message = f'Capturing in {max(0., 2.*(1-self.hold_progress)):.1f}s. Keep this pose and wrist position.'
+            if key == 32 or ready:
+                try:
+                    self.capture()
+                except ValueError as exc:
+                    self.message = str(exc)
+                    self.capture_hold.clear()
+                    self.samples.clear()
+                    self.stage_since = now
         if self.stage in (13,14):
             # Same target lock and smoothing as runtime. No OS mouse events.
             state = self.engine.states[owner.id]
@@ -114,7 +246,7 @@ class Wizard:
                             'click_errors': self.errors,
                             'mean_error': sum(self.errors)/len(self.errors),
                             'max_error': max(self.errors), 'drag_passed': True}
-                        self.message = 'Calibration passed. Press ENTER to save and launch.'
+                        self.message = 'Calibration passed. Open your hand, then hold an INDEX pinch for 1.5 seconds to save.'
                     self.dragging = False
                     self.drag_previous = None
                 elif kind == 'mouse_click' and data['button'] == 'left' and self.stage == 13:
@@ -128,24 +260,22 @@ class Wizard:
                             self.message = 'Pinch and hold the left circle, move it to the right circle, then release.'
                     else:
                         self.message = f'Missed by {error*100:.0f}% of screen span. Aim at the ring and try again.'
-        if self.stage == 15 and key in (10,13):
-            self.done = True
         return visible
 
     def instructions(self):
         if self.stage == 0:
-            return 'Camera position', 'Face the camera. Show both wrists and fingertips. SPACE to continue.'
+            return 'Camera position', 'Show ONE open hand at your comfortable center. Hold still for 2 seconds to begin.'
         if self.stage == 1:
-            return 'Choose your controlling hand', 'Thumb + pinky selects the hand. Your other hand will scroll and zoom.'
+            return 'Choose your controlling hand', 'Hold ONE open hand still for 2 seconds, or select it with a thumb + pinky pinch.'
         if 2 <= self.stage <= 5:
             corner = ('TOP LEFT','TOP RIGHT','BOTTOM RIGHT','BOTTOM LEFT')[self.stage-2]
-            return f'Comfortable reach: {corner}', 'Move your open hand toward the target. Keep your wrist still. Press SPACE.'
+            return f'Comfortable reach: {corner}', 'Move your OPEN hand toward the target. Hold still for the 2-second countdown.'
         if self.stage == 6:
-            return 'Neutral position', 'Move your open hand to a comfortable center. Hold still and press SPACE.'
+            return 'Neutral position', 'Return your OPEN hand to the comfortable center. Hold still for 2 seconds.'
         if 7 <= self.stage <= 12:
             trial = (self.stage-7)//2+1
-            return f'Pinch calibration {trial}/3', ('OPEN your fingers. Hold your wrist still. Press SPACE.' if self.stage % 2 else
-                                                     'Touch INDEX fingertip to thumb. Hold it still. Press SPACE.')
+            return f'Pinch calibration {trial}/3', ('OPEN your fingers. Hold your wrist still until the countdown completes.' if self.stage % 2 else
+                                                     'Touch INDEX fingertip to thumb. Hold the pinch and wrist still for 2 seconds.')
         if self.stage == 13:
             return f'Accuracy check {self.validation+1}/5', 'Move the blue dot into the target, then briefly pinch index + thumb to click.'
         if self.stage == 14:
@@ -205,9 +335,14 @@ class Wizard:
         import textwrap
         for i,line in enumerate(textwrap.wrap(self.message, 110)):
             text(line,36,638+i*24,.56,(140,220,255))
-        footer = ('ENTER save and launch' if self.stage == 15 else
-                  'Pinch to interact' if self.stage in (13,14) else 'SPACE capture')
-        text(footer + '  |  R restart  |  ESC cancel without saving',36,704,.52)
+        text(self.hold_label,924,490,.48,(140,220,255))
+        cv2.rectangle(canvas,(36,610),(896,618),(75,63,48),-1)
+        if self.hold_progress:
+            cv2.rectangle(canvas,(36,610),(36+int(860*self.hold_progress),618),(160,220,110),-1)
+        footer = ('Open hand, then hold INDEX pinch 1.5s to save' if self.stage == 15 else
+                  'Hold MIDDLE pinch 2s: restart  |  Hold RING pinch 3s: cancel')
+        text(footer,36,682,.48)
+        text('Optional keys: SPACE capture  |  ENTER save at finish  |  R restart  |  ESC cancel',36,708,.45)
         cv2.rectangle(canvas,(924,660),(1244,671),(75,63,48),-1)
         cv2.rectangle(canvas,(924,660),(924+int(320*self.stage/15),671),(190,215,100),-1)
         return canvas
@@ -251,6 +386,8 @@ def run_calibration(cfg):
                 visible = wizard.update(observations,time.monotonic(),key)
                 cv2.imshow(window,wizard.render(frame,visible))
                 shown = True
+                if wizard.cancelled:
+                    return None
                 if wizard.done:
                     return wizard.cfg
     finally:

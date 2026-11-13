@@ -18,8 +18,9 @@
 | Control remains off | Show an open hand, then pinch thumb to pinky. Two simultaneous requests select neither hand. |
 | Crossed hands pause | Separate hands, show the owner's full wrist/palm, reopen fingers. Uncertain identity is withheld. |
 | Reappearance does nothing | Open all pinches first. After a long loss, same-known-handedness reacquisition is required; Space/X can reset before a fresh selection. |
-| Calibration won't capture | Hold a single controlling wrist steady for at least 0.7 seconds. Press Space after the hand is fully visible. |
-| Bad corners / center off | R restarts; use a comfortable clockwise rectangle with enough reach. Avoid steep camera angles. |
+| Calibration won't capture | Hold the requested pose and wrist position for the two-second countdown. Start with one open hand at center; move up-left for the first corner and toward each new target afterward. Movement, loss or the wrong pose resets capture. Space remains optional. |
+| Bad corners / center off | Hold thumb–middle pinch for two seconds (or R) to restart; use a comfortable clockwise rectangle with enough reach. Avoid steep camera angles. |
+| Calibration keeps asking for Space | Use the v2.2 ZIP; older releases require keyboard capture. |
 | Pinches rejected | Open wider during open samples, make actual thumb/index contact for closed samples, improve lighting and avoid finger occlusion. |
 | Targets hard to hit | Keep the wrist still while pinching, return to the calibrated seating position, or redo calibration. |
 | Drag too fast/slow | Adjust `drag_hold_ms` in the profile or use runtime keys 1/2, S to save; run practice again. |

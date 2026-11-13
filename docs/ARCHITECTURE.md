@@ -14,8 +14,8 @@ USB mic -> PipeWire/PulseAudio desktop source -> default input for applications
 ```
 
 - `gesture_engine.py`: deterministic, dependency-free association, ownership, debounce, click/drag/dual-hand state transitions. Known opposite or unknown handedness cannot inherit known tracks. Global assignment and ambiguity margins replace greedy matching. Label/motion conflicts withhold input. After track expiry only a uniquely visible same-known-handedness hand may reacquire ownership; this is not biometric identification.
-- `calibration.py`: projective mapping, geometry rejection, stable sample windows and personalized pinch thresholds. No camera or numerical-library dependencies.
-- `calibration_ui.py`: guided state machine and OpenCV rendering; practice consumes engine events locally, never through the desktop adapter. All state is copied until successful save.
+- `calibration.py`: projective mapping, geometry rejection, stable sample windows, identity-bound timed gesture holds and personalized pinch thresholds. No camera or numerical-library dependencies.
+- `calibration_ui.py`: guided state machine and OpenCV rendering; practice consumes engine events locally, never through the desktop adapter. All state is copied until successful save. Pose-aware dwell captures work before learned pinch thresholds exist; target-motion gates prevent duplicate corners. Long command pinches restart/cancel, and a fresh final pinch confirms saving. Keyboard shortcuts remain available.
 - `profiles.py`: version 6 migration, version 7 validation, safe names and atomic writes. Profiles live outside the application directory.
 - `devices.py`: bounded inventory commands, persistent device identifiers, capture worker with a three-second stale-frame timeout, and temporary opt-in audio recording/playback.
 - `setup_ui.py`: Tk/Pillow device/profile screen with asynchronous discovery/audio tests and live preview.

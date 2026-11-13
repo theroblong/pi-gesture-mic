@@ -110,8 +110,36 @@ class StableSamples:
 
     def capture(self):
         if len(self.samples) < 8 or self.samples[-1][0]-self.samples[0][0] < self.duration:
-            raise ValueError("Hold steady for a moment, then press SPACE")
+            raise ValueError("Hold steady for a moment")
         point = tuple(statistics.median(s[1][i] for s in self.samples) for i in (0,1))
         if max(math.dist(s[1], point) for s in self.samples) > self.jitter:
-            raise ValueError("Keep your wrist still, then press SPACE")
+            raise ValueError("Keep your wrist still")
         return point, [s[2] for s in self.samples]
+
+
+class GestureHold:
+    """A continuous, identity-bound hold; gaps and movement reset progress."""
+    def __init__(self, jitter=.025):
+        self.jitter = jitter
+        self.clear()
+
+    def clear(self):
+        self.token = None
+        self.anchor = None
+        self.started = self.last_seen = None
+        self.frames = 0
+        self.progress = 0.
+
+    def update(self, token, point, now, duration=2.):
+        if token is None:
+            self.clear()
+            return False
+        if (token != self.token or self.last_seen is None or
+                now-self.last_seen > .25 or now < self.last_seen or
+                math.dist(point, self.anchor) > self.jitter):
+            self.clear()
+            self.token, self.anchor, self.started = token, point, now
+        self.last_seen = now
+        self.frames += 1
+        self.progress = min(1., max(0., (now-self.started)/duration))
+        return self.progress >= 1. and self.frames >= 8

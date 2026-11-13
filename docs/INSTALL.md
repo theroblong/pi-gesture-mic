@@ -4,7 +4,7 @@
 
 Use Raspberry Pi 5 with Raspberry Pi OS 64-bit Desktop, Bookworm (system Python 3.11) or Trixie (3.13), HDMI display, USB UVC camera and optionally a USB Audio Class microphone. This release supports Python 3.11–3.13. Lite/headless images, CSI/libcamera-only cameras and other distributions are outside the supported path.
 
-Extract `dist/pi-gesture-mic-pi5-v2.1.zip`, enter its `pi-gesture-mic` directory on the Pi desktop, and run `bash install_pi.sh`. Use your regular account. The script elevates only system setup commands.
+Extract `dist/pi-gesture-mic-pi5-v2.2.zip`, enter its `pi-gesture-mic` directory on the Pi desktop, and run `bash install_pi.sh`. Use your regular account. The script elevates only system setup commands.
 
 ## What the script handles
 
@@ -32,7 +32,7 @@ The installer is safe to rerun after a failed download or apt operation. It reus
 
 ## Upgrade and rollback
 
-Extract v2.1 into a **new directory** to preserve any source customizations and avoid stale virtual environments. Run its installer to recreate shortcuts. Profiles remain under the desktop account's configuration directory. Keep the prior directory until the new version works. To roll back application code, recreate shortcuts from the prior directory. A v1 runtime does not understand v2 calibration profiles; its original configuration remains alongside its source.
+Extract v2.2 into a **new directory** to preserve any source customizations and avoid stale virtual environments. Run its installer to recreate shortcuts. Profiles remain under the desktop account's configuration directory. Keep the prior directory until the new version works. To roll back application code, recreate shortcuts from the prior directory. A v1 runtime does not understand v2 calibration profiles; its original configuration remains alongside its source.
 
 ## Remove login behavior or desktop changes
 

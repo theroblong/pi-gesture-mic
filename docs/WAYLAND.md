@@ -1,6 +1,6 @@
 # Wayland support · v2.1
 
-Use **pi-gesture-mic-pi5-v2.1.zip**. Extract it into a new directory on the Pi, open a terminal there on the desktop and run:
+Use **pi-gesture-mic-pi5-v2.2.zip** (includes v2.1 Wayland support plus hands-free calibration). Extract it into a new directory on the Pi, open a terminal there on the desktop and run:
 
 ```bash
 bash install_pi.sh

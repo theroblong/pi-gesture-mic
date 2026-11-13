@@ -7,7 +7,7 @@ import stat
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '2.1.0'
+VERSION = '2.2.0'
 PACKAGE = 'pi-gesture-mic'
 TOP_LEVEL = (
     'README.md','CHANGELOG.md','requirements.txt','gesture_config.json',
@@ -31,7 +31,7 @@ def source_files(root):
 def build(output=None, root=ROOT):
     output = Path(output) if output else root/'dist'
     output.mkdir(parents=True,exist_ok=True)
-    archive = output/'pi-gesture-mic-pi5-v2.1.zip'
+    archive = output/'pi-gesture-mic-pi5-v2.2.zip'
     payload = {str(p.relative_to(root)):p.read_bytes() for p in source_files(root)}
     for name,data in payload.items():
         if name.endswith('.py'):

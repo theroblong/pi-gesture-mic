@@ -14,11 +14,28 @@ The UI selects a stable camera device path where available and a persistent desk
 
 ## Calibration
 
-Four camera-plane wrist points (top-left, top-right, bottom-right, bottom-left) map to 10%/90% inset display targets via a projective transform. Samples require at least 0.7 seconds, eight observations, and limited wrist jitter. Non-convex, tiny, crossed or excessively distorted calibration areas are rejected. Center reach must agree within 15% normalized Euclidean error. The center is stored as a comfort/accuracy check, not a fifth fitted correspondence.
+Four camera-plane wrist points (top-left, top-right, bottom-right, bottom-left) map to 10%/90% inset display targets via a projective transform. Automatic capture requires a continuous two-second steady hold in the requested pose, after a short transition pause. The sample window also requires at least 0.7 seconds, eight observations and limited wrist jitter. Non-convex, tiny, crossed or excessively distorted calibration areas are rejected. Center reach must agree within 15% normalized Euclidean error. The center is stored as a comfort/accuracy check, not a fifth fitted correspondence.
 
-Three open/pinch sample pairs estimate separated activation/release thresholds using conservative quantiles. Practice requires five short index clicks within 9% normalized Euclidean screen distance and a successful hold-drag-release. Accuracy metrics and the drag result are saved. Drag hold duration uses the existing tunable setting (350 ms by default); practice validates it rather than deriving a physiological optimum. All tests remain inside the setup canvas.
+Three open/pinch sample pairs estimate separated activation/release thresholds using conservative quantiles. Practice requires five short index clicks within 9% normalized Euclidean screen distance and a successful hold-drag-release. Accuracy metrics and the drag result are saved. Drag hold duration uses the existing tunable setting (350 ms by default); practice validates it rather than deriving a physiological optimum. All tests remain inside the setup canvas. At completion, open your hand and hold a fresh index pinch for 1.5 seconds to save; the drag gesture cannot automatically confirm saving.
 
 Calibrated screen pointing uses the wrist directly; finger closure locks the target. Drag uses displacement under the same mapping, preserving the click location. Calibration is 2D movement mapping, not 3D ray pointing. The adapter keeps generated movements one pixel away from failsafe corners. Normalized calibration survives resolution changes, but changing display placement, aspect ratio or working distance may require recalibration.
+
+## Hands-free calibration controls (v2.2)
+
+After opening Calibrate in the device/profile selector:
+
+| Action | Gesture |
+|---|---|
+| Begin and choose the controlling hand | Show one open hand near a comfortable center; hold still for 2 seconds |
+| Capture corners and neutral center | Move the open hand to the requested position, then hold still for 2 seconds |
+| Measure open fingers and index pinches | Follow the displayed pose and hold the wrist still for the countdown |
+| Save after click/drag practice | Open the hand, then hold a fresh thumb–index pinch for 1.5 seconds |
+| Restart calibration | Hold thumb–middle pinch for 2 seconds |
+| Cancel without saving | Hold thumb–ring pinch for 3 seconds |
+
+A progress bar and countdown show each capture. Release a command pinch to abort its countdown. Begin with an open hand before using the command gestures; only the selected owner can command the wizard once chosen. Use one hand during selection to avoid ambiguity. Corner captures require movement toward the next target, so a stationary hand cannot fill every corner. Tracking gaps, identity changes and wrist motion reset the hold.
+
+Pose capture uses broad, uncalibrated geometric checks rather than requiring the thresholds being measured. Open samples require separated fingers; closed samples require an index pinch distinct from the open baseline. If a pose cannot be recognized, improve visibility or use the optional Space fallback. Space still requires stable samples; Enter saves only at completion, R restarts and Escape cancels. The device/profile selection screen itself still uses normal desktop input.
 
 ## Key settings
 

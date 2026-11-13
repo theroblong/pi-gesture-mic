@@ -1,4 +1,4 @@
-# Gesture Control Pi · v2.1
+# Gesture Control Pi · v2.2
 
 A Raspberry Pi 5 controller for a TV or desktop, with live USB camera setup, guided personal calibration, two-hand gestures, and USB microphone selection and testing.
 
@@ -6,7 +6,7 @@ A Raspberry Pi 5 controller for a TV or desktop, with live USB camera setup, gui
 
 ## Unzip once. Run one script.
 
-Download **[dist/pi-gesture-mic-pi5-v2.1.zip](dist/pi-gesture-mic-pi5-v2.1.zip)** onto the Pi and extract it. Open a terminal inside the extracted `pi-gesture-mic` folder:
+Download **[dist/pi-gesture-mic-pi5-v2.2.zip](dist/pi-gesture-mic-pi5-v2.2.zip)** onto the Pi and extract it. Open a terminal inside the extracted `pi-gesture-mic` folder:
 
 ```bash
 bash install_pi.sh
@@ -21,8 +21,10 @@ The installer installs dependencies in `.venv`, verifies the model checksum and 
 1. **Choose a profile** or type a new name. Profiles survive upgrades and are separate for each desktop account.
 2. **Choose the camera** and check the live mirrored preview. Place it near the display with even lighting, keeping both hands and wrists in view.
 3. **Choose a microphone** or keep the system default. **Test microphone** records four seconds, plays it back, reports the signal level, and deletes the recording.
-4. **Calibrate:** select the controlling hand with a thumb–pinky pinch, record four comfortable reach corners and center, then three open/index-pinch pairs. Hold still and press Space at each capture.
-5. **Practice:** click five targets with short index pinches, then pinch-hold and drag a circle. All practice is contained in the setup window. Enter saves only after these checks pass; Escape cancels without replacing the profile.
+4. **Calibrate hands-free:** show ONE open hand near your comfortable center and hold still for two seconds to select it. Move your open hand to each requested corner and back to center; the visible two-second countdown captures each position. Follow the open/index-pinch prompts the same way. No Space key is needed.
+5. **Practice and save:** click five targets with short index pinches, then pinch-hold and drag a circle. At the success screen, open your hand, then hold an index pinch for 1.5 seconds to save. All practice stays inside the setup window. Hold a thumb–middle pinch for two seconds to restart, or a thumb–ring pinch for three seconds to cancel without replacing your profile. Space/Enter/R/Escape remain optional keyboard controls.
+
+The initial profile/device selector still uses normal mouse/keyboard input. Once you open **Calibrate**, the entire calibration can be completed with one hand and no keyboard.
 
 The camera maps **wrist movement on a 2D plane** to screen coordinates. It does not infer a 3D pointing ray or turn the TV into a physical touchscreen. Recalibrate after moving the camera or changing your seating/reach.
 
@@ -72,7 +74,7 @@ shellcheck ./*.sh
 python3 tools/build_release.py
 ```
 
-The release is an **online bootstrap package**, not an offline OS image: Python wheels and the model are downloaded during install. The ZIP includes application source, scripts, docs, tests and a per-file SHA-256 manifest. `dist/SHA256SUMS` covers the ZIP. The original v1/v2 archives are historical material; **use v2.1 for Wayland and new installs**. Existing v2 profiles remain compatible.
+The release is an **online bootstrap package**, not an offline OS image: Python wheels and the model are downloaded during install. The ZIP includes application source, scripts, docs, tests and a per-file SHA-256 manifest. `dist/SHA256SUMS` covers the ZIP. The original v1/v2 archives are historical material; **use v2.2 for hands-free calibration, Wayland and new installs**. Existing v2 profiles remain compatible.
 
 Validated on the development Mac with automated tests, script checks, rendered wizard screens, a real MediaPipe blank-frame inference, and ARM64 wheel download checks. **Physical Pi 5 acceptance testing is still required** for camera performance, microphone capture/playback, Wayland device discovery, login permissions and pointer injection. See [validation and device checklist](docs/VALIDATION.md).
 
