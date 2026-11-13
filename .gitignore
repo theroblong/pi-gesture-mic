@@ -1,0 +1,19 @@
+# Python / venv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+# MediaPipe model downloaded at install
+hand_landmarker.task
+*.task.tmp
+# Local telemetry, video or recordings
+gesture_events.jsonl
+*.wav
+*.mp4
+*.avi
+# Local system/editor
+.DS_Store
+.idea/
+.vscode/
+# Generated archives (use GitHub releases or attach manually)
+dist/*.zip
