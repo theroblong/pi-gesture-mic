@@ -4,8 +4,8 @@
 |---|---|
 | Installer rejects machine | Use Raspberry Pi OS 64-bit Desktop Bookworm/Trixie on the Pi; the Mac is only a development host. |
 | No desktop / running from SSH | Finish at the Pi's local graphical login; installer adds a temporary resume entry. |
-| Old installer asks for X11 | Install v2.1 from its new ZIP. It keeps Wayland and provisions virtual input. |
-| Wayland input access not ready | Rerun v2.1 installer from the local desktop. Log out/in if prompted; inspect `/dev/uinput` ACLs and see WAYLAND.md. Do not use chmod 666 or run the application as root. |
+| Old installer asks for X11 | Install v2.3 from its new ZIP. It keeps Wayland and provisions virtual input. |
+| Wayland input access not ready | Rerun v2.3 installer from the local desktop. Log out/in if prompted; inspect `/dev/uinput` ACLs and see WAYLAND.md. Do not use chmod 666 or run the application as root. |
 | Wayland setup reports no DISPLAY | XWayland is needed for Tk/OpenCV windows. Installer adds it; log out and back into Wayland to activate it. |
 | Virtual input exists but pointer does not move | Check `sudo libinput list-devices` and compositor device settings. A single local display/seat is the supported target; see WAYLAND.md. |
 | apt/pip/network failure | Fix connectivity or apt lock/error, then rerun the same installer. Do not run the entire installer as root. |
@@ -20,7 +20,7 @@
 | Reappearance does nothing | Open all pinches first. After a long loss, same-known-handedness reacquisition is required; Space/X can reset before a fresh selection. |
 | Calibration won't capture | Hold the requested pose and wrist position for the two-second countdown. Start with one open hand at center; move up-left for the first corner and toward each new target afterward. Movement, loss or the wrong pose resets capture. Space remains optional. |
 | Bad corners / center off | Hold thumb–middle pinch for two seconds (or R) to restart; use a comfortable clockwise rectangle with enough reach. Avoid steep camera angles. |
-| Calibration keeps asking for Space | Use the v2.2 ZIP; older releases require keyboard capture. |
+| Calibration keeps asking for Space | Use the v2.3 ZIP; older releases require keyboard capture. |
 | Pinches rejected | Open wider during open samples, make actual thumb/index contact for closed samples, improve lighting and avoid finger occlusion. |
 | Targets hard to hit | Keep the wrist still while pinching, return to the calibrated seating position, or redo calibration. |
 | Drag too fast/slow | Adjust `drag_hold_ms` in the profile or use runtime keys 1/2, S to save; run practice again. |
@@ -33,3 +33,5 @@
 Emergency stop: use **Stop Gesture Control** or `bash stop_pi.sh`, press Q/Escape with preview focused, close the preview, or Ctrl+C. The physical-mouse-corner failsafe works only on X11. Keep physical input available while validating new hardware. A forced kill or power loss bypasses application cleanup.
 
 Performance depends on camera format, USB bandwidth, lighting and cooling. Try 640×480 processing dimensions on a copied profile if tracking is slow; recalibrate afterward. Camera read buffering is limited where the driver supports it. A hung inference call is not isolated in a separate process, so external process termination may be needed for a native-library hang.
+
+For Cage launch, browser permission, audio-session and startup-log issues, see [KIOSK.md](KIOSK.md).

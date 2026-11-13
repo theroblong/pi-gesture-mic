@@ -1,6 +1,6 @@
-# Wayland support · v2.1
+# Wayland support · v2.3
 
-Use **pi-gesture-mic-pi5-v2.2.zip** (includes v2.1 Wayland support plus hands-free calibration). Extract it into a new directory on the Pi, open a terminal there on the desktop and run:
+Use **pi-gesture-mic-pi5-v2.3.zip** (includes hands-free calibration and a Cage kiosk launcher). Extract it into a new directory on the Pi, open a terminal there on the desktop and run:
 
 ```bash
 bash install_pi.sh
@@ -17,7 +17,7 @@ The runtime detects Wayland and creates virtual pointer/keyboard devices through
 - Wheel events provide scroll/pan; a virtual keyboard provides Ctrl+= and Ctrl+- zoom shortcuts.
 - Held buttons and keys are released on orderly shutdown; every device descriptor is closed, including after partial creation failures.
 
-Tk/OpenCV setup windows use **XWayland for rendering only**. The installer includes XWayland and the launcher selects OpenCV's xcb plugin. Your desktop and browser can remain native Wayland. A minimal compositor session with XWayland disabled needs it enabled for these windows. This release targets the standard Raspberry Pi OS labwc/Wayfire desktop with one display; custom Cage sessions and multi-seat/multi-monitor mappings require device validation.
+Tk/OpenCV setup windows use **XWayland for rendering only**. The installer includes XWayland and the launcher selects OpenCV's xcb plugin. Your desktop and browser can remain native Wayland. Setup/calibration needs a desktop with XWayland enabled. The new `start_alt_kiosk.sh` runs a saved calibrated profile inside Cage without preview windows or XWayland. It uses a 1920×1080 reference canvas, normalized to the physical output by uinput; relative motion sensitivity uses that reference size. One display is supported; Cage delivery and seat permissions still require device validation. See [Cage kiosk](KIOSK.md).
 
 Sources: [Linux uinput](https://docs.kernel.org/input/uinput.html), [python-evdev input creation](https://python-evdev.readthedocs.io/en/latest/tutorial.html#specifying-uinput-device-options), and [libinput virtual absolute pointing devices](https://wayland.freedesktop.org/libinput/doc/latest/what-is-libinput.html).
 

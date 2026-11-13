@@ -15,8 +15,12 @@ def session_backend(environ=None):
     return 'x11'
 
 
-def require_desktop(environ=None):
+def require_desktop(environ=None, kiosk=False):
     env = os.environ if environ is None else environ
+    if kiosk:
+        if not env.get('WAYLAND_DISPLAY'):
+            raise RuntimeError('Kiosk gesture control must run inside Cage. Use bash start_alt_kiosk.sh URL.')
+        return
     if not env.get('DISPLAY'):
         if session_backend(env) == 'uinput':
             raise RuntimeError('Wayland input is supported, but the setup/preview windows need XWayland. '
@@ -209,9 +213,9 @@ No physical event devices are read or grabbed; application code runs unprivilege
         self.devices = []
 
 
-def create_driver(backend):
+def create_driver(backend, size=None):
     if backend == 'uinput':
-        return UInputDriver()
+        return UInputDriver(size=size)
     if backend == 'x11':
         import pyautogui
         return pyautogui

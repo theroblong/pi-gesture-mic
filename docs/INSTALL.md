@@ -4,11 +4,11 @@
 
 Use Raspberry Pi 5 with Raspberry Pi OS 64-bit Desktop, Bookworm (system Python 3.11) or Trixie (3.13), HDMI display, USB UVC camera and optionally a USB Audio Class microphone. This release supports Python 3.11–3.13. Lite/headless images, CSI/libcamera-only cameras and other distributions are outside the supported path.
 
-Extract `dist/pi-gesture-mic-pi5-v2.2.zip`, enter its `pi-gesture-mic` directory on the Pi desktop, and run `bash install_pi.sh`. Use your regular account. The script elevates only system setup commands.
+Extract `dist/pi-gesture-mic-pi5-v2.3.zip`, enter its `pi-gesture-mic` directory on the Pi desktop, and run `bash install_pi.sh`. Use your regular account. The script elevates only system setup commands.
 
 ## What the script handles
 
-- Architecture/OS/Python checks, apt prerequisites for camera, ALSA/desktop audio, Tk, XWayland/Qt libraries and Linux input build headers.
+- Architecture/OS/Python checks, apt prerequisites for camera, ALSA/desktop audio, Tk, XWayland/Qt libraries, Linux input build headers, Cage and Chromium.
 - A local `.venv`, explicit direct dependency pins, pip consistency checks, and a record of all resolved versions in `~/.local/state/pi-gesture-mic/installed-requirements.txt`.
 - A versioned MediaPipe hand model download with a fixed SHA-256 check. A corrupt or partial file is replaced only after a valid download completes.
 - A real blank-frame model inference before opening setup. This checks library/model compatibility on the target Pi without requiring a camera or desktop connection.
@@ -32,7 +32,7 @@ The installer is safe to rerun after a failed download or apt operation. It reus
 
 ## Upgrade and rollback
 
-Extract v2.2 into a **new directory** to preserve any source customizations and avoid stale virtual environments. Run its installer to recreate shortcuts. Profiles remain under the desktop account's configuration directory. Keep the prior directory until the new version works. To roll back application code, recreate shortcuts from the prior directory. A v1 runtime does not understand v2 calibration profiles; its original configuration remains alongside its source.
+Extract v2.3 into a **new directory** to preserve any source customizations and avoid stale virtual environments. Run its installer to recreate shortcuts. Profiles remain under the desktop account's configuration directory. Keep the prior directory until the new version works. To roll back application code, recreate shortcuts from the prior directory. A v1 runtime does not understand v2 calibration profiles; its original configuration remains alongside its source.
 
 ## Remove login behavior or desktop changes
 
@@ -43,3 +43,5 @@ Extract v2.2 into a **new directory** to preserve any source customizations and 
 - To uninstall, disable autostart and clear resume first, remove `pi-gesture-mic*.desktop` from `~/.local/share/applications`, then remove the extracted application directory. Keep or separately remove `~/.config/pi-gesture-mic` and `~/.local/state/pi-gesture-mic`. Shared apt packages are intentionally left installed.
 
 XDG_CONFIG_HOME, XDG_DATA_HOME and XDG_STATE_HOME are respected throughout. Logs are in `~/.local/state/pi-gesture-mic/install.log`; model downloads and dependencies require working internet and sufficient disk space (allow roughly 1 GB for environment/downloads).
+
+For Cage, finish desktop calibration, stop the desktop controller, then use `bash start_alt_kiosk.sh URL`. See [kiosk setup](KIOSK.md).

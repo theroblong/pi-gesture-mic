@@ -14,3 +14,9 @@ bash check_microphone.sh --test  # explicit four-second test of the current defa
 For low/clipped audio, adjust the desktop microphone level and repeat the test. If capture works but playback is silent, check the HDMI/speaker output device and volume. When using Chromium, select/allow the microphone in the site's permission prompt; system default selection does not grant browser permission. Remote sites generally need HTTPS (localhost is an exception).
 
 **No speech-to-text, wake word or voice-command service is included.** This product configures and validates the capture device for other desktop/browser applications.
+
+## Webpage voice in Cage
+
+Use `bash start_alt_kiosk.sh https://your-app.example` after calibration. The saved microphone is made the system default before Chromium opens, so a webpage using the default audio input can use it. If your webpage explicitly chooses another device, change its own input selection too. Click the webpage's voice control and allow its microphone prompt. Consent/settings persist in `~/.config/pi-gesture-mic/chromium-kiosk`; the old temporary profile is not imported. There is no blanket microphone auto-grant.
+
+The Cage process must inherit your normal user's working PipeWire/PulseAudio session. A bare TTY/service may have display access but no sound server; check `pactl info` and `bash check_microphone.sh` from the same launch session. Missing saved inputs are reported while gestures remain available. The webpage controls when audio is recorded and where it is processed.

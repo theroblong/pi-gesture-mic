@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.0 — 2026-11-13
+
+- Cage launcher starts and supervises gesture control plus native Wayland Chromium, waiting for the first successful camera inference.
+- Saved calibration runs without setup/preview windows or XWayland; persistent Chromium profile retains site settings and microphone consent.
+- Saved microphone selection precedes browser startup; webpage voice remains responsible for recognition and microphone consent.
+- Browser exit stops gestures; startup/runtime failure is reported and closes the kiosk. Added lifecycle, launch quoting and no-display runtime tests.
+- Installer includes Cage/Chromium, with an updated distributable and kiosk guide. Physical Pi/Cage acceptance remains pending.
+
 ## 2.2.0 — 2026-11-12
 
 - Complete hands-free calibration after opening the wizard: open-hand owner selection, pose-aware two-second capture countdowns and deliberate final index-pinch save.

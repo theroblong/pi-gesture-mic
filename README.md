@@ -1,4 +1,4 @@
-# Gesture Control Pi · v2.2
+# Gesture Control Pi · v2.3
 
 A Raspberry Pi 5 controller for a TV or desktop, with live USB camera setup, guided personal calibration, two-hand gestures, and USB microphone selection and testing.
 
@@ -6,7 +6,7 @@ A Raspberry Pi 5 controller for a TV or desktop, with live USB camera setup, gui
 
 ## Unzip once. Run one script.
 
-Download **[dist/pi-gesture-mic-pi5-v2.2.zip](dist/pi-gesture-mic-pi5-v2.2.zip)** onto the Pi and extract it. Open a terminal inside the extracted `pi-gesture-mic` folder:
+Download **[dist/pi-gesture-mic-pi5-v2.3.zip](dist/pi-gesture-mic-pi5-v2.3.zip)** onto the Pi and extract it. Open a terminal inside the extracted `pi-gesture-mic` folder:
 
 ```bash
 bash install_pi.sh
@@ -56,15 +56,26 @@ Detection order changes do not change the owner. Opposite/unknown labels and amb
 
 With the preview focused: Space toggles, X resets, S saves this profile, R reloads, T toggles local telemetry, M switches screen/relative mode. Existing numeric tuning shortcuts remain; see [configuration](docs/CONFIGURATION.md).
 
-## Kiosk and desktop login
+## Cage kiosk with gestures and webpage voice
+
+After installing and saving calibration on the desktop, stop the desktop controller before launching Cage:
 
 ```bash
-bash start_kiosk.sh https://your-app.example
-bash setup_autostart.sh enable
-bash setup_autostart.sh disable
+bash stop_pi.sh
+bash setup_autostart.sh disable  # if desktop gesture autostart was enabled
+bash start_alt_kiosk.sh "https://your-app.example"
+# Optional: append --profile "Living room"
 ```
 
-Chromium and its microphone permissions remain separate from gesture control. On a Desktop image without Chromium, install it with `sudo apt install chromium`. Set `show_preview` to `false` in the saved profile for kiosk operation; stop from its terminal or by terminating that process. Gesture autostart is opt-in (`--autostart` during installation also enables it).
+The installer includes Cage and Chromium. Run Cage from your normal local login/TTY with access to the display, camera, audio session and virtual input. The launcher starts gesture tracking inside Cage, waits for a real camera inference, then opens native Wayland Chromium. No preview window competes with the webpage, and the saved profile is unchanged. Setup/calibration still runs on the desktop; kiosk runtime does not require XWayland.
+
+Show an open hand, then **pinch thumb + pinky** to enable control. Use short index pinches to click your webpage's voice button and **Allow** its microphone request. The saved microphone is selected before Chromium starts. Voice recognition belongs to your webpage; the Pi package does not add a separate voice service. Use HTTPS or localhost and the same normal user/audio session used for setup.
+
+Browser settings and site consent persist in `~/.config/pi-gesture-mic/chromium-kiosk`, replacing the old temporary `/tmp/kiosk-profile`. Grant permission once in the new profile; the browser may ask again after site/permission changes. Microphone access is not automatically granted to every website.
+
+Closing Chromium stops gestures. A controller failure closes the kiosk; `bash stop_pi.sh` therefore stops both. Thumb + pinky only toggles control, leaving the webpage open. Startup details are in `~/.local/state/pi-gesture-mic/kiosk-gesture.log`. See [Cage setup and troubleshooting](docs/KIOSK.md).
+
+For an ordinary desktop, `bash start_kiosk.sh URL` remains a browser-only launcher. Gesture desktop autostart remains opt-in with `bash setup_autostart.sh enable`.
 
 ## Validation and release
 
@@ -74,7 +85,7 @@ shellcheck ./*.sh
 python3 tools/build_release.py
 ```
 
-The release is an **online bootstrap package**, not an offline OS image: Python wheels and the model are downloaded during install. The ZIP includes application source, scripts, docs, tests and a per-file SHA-256 manifest. `dist/SHA256SUMS` covers the ZIP. The original v1/v2 archives are historical material; **use v2.2 for hands-free calibration, Wayland and new installs**. Existing v2 profiles remain compatible.
+The release is an **online bootstrap package**, not an offline OS image: Python wheels and the model are downloaded during install. The ZIP includes application source, scripts, docs, tests and a per-file SHA-256 manifest. `dist/SHA256SUMS` covers the ZIP. The original v1/v2 archives are historical material; **use v2.3 for hands-free calibration, Wayland and new installs**. Existing v2 profiles remain compatible.
 
 Validated on the development Mac with automated tests, script checks, rendered wizard screens, a real MediaPipe blank-frame inference, and ARM64 wheel download checks. **Physical Pi 5 acceptance testing is still required** for camera performance, microphone capture/playback, Wayland device discovery, login permissions and pointer injection. See [validation and device checklist](docs/VALIDATION.md).
 

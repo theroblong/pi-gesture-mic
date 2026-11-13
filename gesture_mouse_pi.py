@@ -22,7 +22,7 @@ from pathlib import Path
 cv2 = mp = pg = None  # Loaded only after CLI and desktop checks.
 
 from gesture_engine import GestureEngine, clamp
-from profiles import ProfileStore, NUMERIC_LIMITS, state_home
+from profiles import ProfileStore, NUMERIC_LIMITS, state_home, atomic_json
 from calibration import transform
 from devices import Camera, select_microphone
 from desktop_input import session_backend, require_desktop, create_driver
@@ -77,7 +77,7 @@ class DesktopAdapter:
                     file.write(json.dumps(entry) + "\n")
             except OSError as exc:
                 print("Telemetry write error:", exc)
-        if kind not in ("pointer_delta", "drag_delta", "pointer_reanchor", "secondary_scroll_delta", "two_hand_pan_delta"):
+        if kind not in ("pointer_delta", "drag_delta", "pointer_reanchor", "secondary_scroll_delta", "two_hand_pan_delta", "hand_sample"):
             print(kind, fields if fields else "")
 
     def move(self, dx, dy, smoothing, absolute=False):
@@ -311,18 +311,26 @@ def main():
     parser.add_argument("--setup", action="store_true", help="Open profile/device setup and calibration")
     parser.add_argument("--desktop", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--profile", help="Use a named profile")
+    parser.add_argument("--kiosk", action="store_true", help="Use a saved profile without setup/preview windows inside Cage")
+    parser.add_argument("--ready-file", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--list-profiles", action="store_true")
     parser.add_argument("--check-config", action="store_true", help="Validate profile without camera or display")
     args = parser.parse_args()
     if args.list_profiles:
         print("\n".join(STORE.names()) or "Default (not yet saved)")
         return
+    if args.kiosk and args.setup:
+        parser.error("--kiosk and --setup cannot be combined; calibrate on the desktop first")
     PROFILE = args.profile or STORE.active()
     cfg = load_config()
     if args.check_config:
         print(f"Profile {PROFILE}: configuration valid")
         return
-    require_desktop()
+    if args.kiosk:
+        if not STORE.path(PROFILE).exists() or not cfg.get('calibration'):
+            raise RuntimeError('Kiosk needs a saved calibrated profile. Run bash run_pi.sh --setup on the desktop first.')
+        cfg['show_preview'] = False  # Session-only override; preserve the saved profile.
+    require_desktop(kiosk=args.kiosk)
     backend = session_backend()
     if backend == 'uinput':
         os.environ['QT_QPA_PLATFORM'] = 'xcb'
@@ -355,17 +363,22 @@ def main():
     model = ROOT / cfg["model_path"]
     if not model.is_file():
         raise FileNotFoundError(f"Missing model: {model}. Run bash install_pi.sh to repair dependencies.")
+    microphone_status = 'system default'
     if cfg.get("microphone_source"):
         try:
             select_microphone(cfg["microphone_source"])
+            microphone_status = 'selected profile input'
         except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+            microphone_status = f'unavailable: {exc}'
             print(f"Microphone unavailable: {exc}. Gestures remain available.")
     opts = mp.tasks.vision.HandLandmarkerOptions(
         base_options=mp.tasks.BaseOptions(model_asset_path=str(model)),
         running_mode=mp.tasks.vision.RunningMode.VIDEO,
         num_hands=2)
     engine = GestureEngine(cfg)
-    driver = create_driver(backend)
+    # Absolute uinput coordinates are normalized: this reference canvas works at
+    # any physical resolution and avoids a Tk/XWayland window inside Cage.
+    driver = create_driver(backend, size=(1920,1080) if args.kiosk else None)
     adapter = DesktopAdapter(cfg, driver=driver)
     adapter.engine = engine
     print(f"Desktop input: {backend}")
@@ -396,6 +409,7 @@ def main():
     started = time.monotonic()
     prev_ts = -1
     last_sample = -1e6
+    ready_sent = False
     try:
         with mp.tasks.vision.HandLandmarker.create_from_options(opts) as tracker:
             while True:
@@ -410,6 +424,9 @@ def main():
                 ts = max(prev_ts + 1, int((time.monotonic() - started) * 1000))
                 prev_ts = ts
                 result = tracker.detect_for_video(image, ts)
+                if args.ready_file and not ready_sent:
+                    atomic_json(args.ready_file, {'ready': True, 'profile': PROFILE, 'backend': backend, 'microphone': microphone_status})
+                    ready_sent = True
                 now = time.monotonic()
                 observations = [([(lm.x, lm.y) for lm in hand], label(result, i))
                                 for i, hand in enumerate(result.hand_landmarks)]

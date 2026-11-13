@@ -39,7 +39,7 @@ if ! $RESUME; then
   sudo apt-get install -y python3-venv python3-pip python3-tk python3-dev build-essential linux-libc-dev \
     libgl1 libglib2.0-0 libx11-6 libxtst6 libxcb-cursor0 libxcb-xinerama0 libxkbcommon-x11-0 libxcb-icccm4 \
     libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libportaudio2 \
-    scrot alsa-utils v4l-utils usbutils pulseaudio-utils curl ca-certificates xwayland acl procps
+    scrot alsa-utils v4l-utils usbutils pulseaudio-utils curl ca-certificates xwayland acl procps cage chromium
   python3 - <<'PY'
 import sys
 if not (3,11) <= sys.version_info[:2] <= (3,13):
